@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}IP Clusters – {{ scope }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">IP Clusters – <span class="font-mono">{{ scope }}</span></h1>
+  <a href="/targets/{{ scope }}" class="text-blue-700 underline">← Back to target</a>
+</div>
+
+<form id="controls" class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end mb-3"
+      onsubmit="event.preventDefault(); loadClusters();">
+  <div>
+    <label class="block text-xs text-slate-600 mb-1">Filter host (q)</label>
+    <input id="q" name="q" value="{{ q }}" class="w-full rounded-lg border px-3 py-1.5" placeholder="e.g. admin">
+  </div>
+  <div>
+    <label class="block text-xs text-slate-600 mb-1">Min hosts/IP</label>
+    <input id="min_hosts" name="min_hosts" type="number" min="1" value="{{ min_hosts }}" class="w-full rounded-lg border px-3 py-1.5">
+  </div>
+  <div>
+    <label class="block text-xs text-slate-600 mb-1">Limit IPs</label>
+    <input id="limit_ips" name="limit_ips" type="number" min="1" value="{{ limit_ips }}" class="w-full rounded-lg border px-3 py-1.5">
+  </div>
+  <div>
+    <label class="block text-xs text-slate-600 mb-1">Limit hosts/IP</label>
+    <input id="limit_hosts_per_ip" name="limit_hosts_per_ip" type="number" min="1" value="{{ limit_hosts_per_ip }}" class="w-full rounded-lg border px-3 py-1.5">
+  </div>
+  <div class="flex gap-2">
+    <button class="px-4 py-2 rounded-lg bg-slate-900 text-white">Apply</button>
+    <button type="button" id="backBtn" class="px-4 py-2 rounded-lg bg-slate-200"
+            onclick="backToClusters()" style="display:none">Back to clusters</button>
+  </div>
+</form>
+
+<div id="meta" class="text-xs text-slate-600 mb-2"></div>
+
+<div id="network" class="w-full h-[70vh] rounded-xl border"></div>
+
+<!-- vis-network CDN -->
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+<script>
+  const DATA_URL = "{{ data_url }}";           // /targets/{scope}/graphs/subdomains/ip-clusters
+  const EGO_URL_BASE = "{{ ego_url_base }}";   // /targets/{scope}/graphs/subdomains/ip/{ip}
+
+  let network = null;
+  let lastPayload = null; // simpan overview payload utk back
+  let isEgo = false;
+
+  function buildQuery(params) {
+    const q = new URLSearchParams();
+    for (const [k,v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== "") q.set(k, v);
+    }
+    return q.toString();
+  }
+
+  function uiParams() {
+    return {
+      q: document.getElementById("q").value.trim(),
+      min_hosts: document.getElementById("min_hosts").value,
+      limit_ips: document.getElementById("limit_ips").value,
+      limit_hosts_per_ip: document.getElementById("limit_hosts_per_ip").value,
+    };
+  }
+
+  async function loadClusters() {
+    try {
+      const params = uiParams();
+      const url = DATA_URL + "?" + buildQuery(params);
+      const res = await fetch(url);
+      const data = await res.json();
+      lastPayload = data;
+      isEgo = false;
+      document.getElementById("backBtn").style.display = "none";
+      renderNetwork(data);
+      updateMeta(data, params);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load clusters");
+    }
+  }
+
+  async function loadEgo(ip) {
+    try {
+      const url = EGO_URL_BASE + "/" + encodeURIComponent(ip);
+      const res = await fetch(url);
+      const data = await res.json();
+      isEgo = true;
+      document.getElementById("backBtn").style.display = "inline-block";
+      renderNetwork(data);
+      updateMeta(data, { ego: ip });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load ego graph");
+    }
+  }
+
+  function backToClusters() {
+    if (lastPayload) {
+      isEgo = false;
+      document.getElementById("backBtn").style.display = "none";
+      renderNetwork(lastPayload);
+      updateMeta(lastPayload, uiParams());
+    } else {
+      loadClusters();
+    }
+  }
+
+  function updateMeta(data, params) {
+    const n = (data.nodes || []).length;
+    const e = (data.edges || []).length;
+    const meta = document.getElementById("meta");
+    meta.textContent = (isEgo ? "[Ego graph]" : "[Clusters]") +
+      ` nodes=${n} edges=${e}  params=` + JSON.stringify(params);
+  }
+
+  function renderNetwork(payload) {
+    const container = document.getElementById("network");
+    const nodes = new vis.DataSet((payload.nodes || []).map(n => ({
+      id: n.id,
+      label: n.type === "ip" ? n.ip : n.host,
+      group: n.type,
+      shape: n.type === "ip" ? "box" : "ellipse",
+      title: tooltipFor(n),
+      color: colorFor(n),
+      font: { multi: true },
+    })));
+    const edges = new vis.DataSet((payload.edges || []).map(e => ({
+      from: e.source, to: e.target, color: "#b0b8c3"
+    })));
+
+    const data = { nodes, edges };
+    const options = {
+      physics: {
+        stabilization: true,
+        solver: "forceAtlas2Based",
+        forceAtlas2Based: { damping: 0.4, avoidOverlap: 0.5 }
+      },
+      groups: {
+        ip:   { color: { background: "#fef3c7", border: "#f59e0b" } },
+        host: { color: { background: "#e0f2fe", border: "#0284c7" } }
+      },
+      interaction: { hover: true, navigationButtons: true, tooltipDelay: 120 },
+    };
+
+    if (network) { network.destroy(); }
+    network = new vis.Network(container, data, options);
+
+    network.on("doubleClick", params => {
+      const nodeId = (params.nodes && params.nodes[0]) || null;
+      if (!nodeId) return;
+      if (nodeId.startsWith("ip:")) {
+        const ip = nodeId.slice(3);
+        loadEgo(ip);
+      } else if (nodeId.startsWith("host:")) {
+        // coba buka host di browser (kalau enrich punya scheme)
+        const n = nodes.get(nodeId);
+        // title tooltip punya scheme di dalamnya? kita nggak parse—biarin simple:
+        // buka di Google kalau mau. Atau cukup highlight saja:
+        network.focus(nodeId, { scale: 1.2, animation: true });
+      }
+    });
+  }
+
+  function tooltipFor(n) {
+    if (n.type === "ip") {
+      return `IP: ${n.ip}\nHosts: ${n.hosts}\nAlive hosts: ${n.alive}\nLast probe: ${n.last_probe || "-"}`;
+    } else {
+      return `Host: ${n.host}\nAlive: ${n.alive}\nCode: ${n.code || "-"}\nTitle: ${n.title || "-"}\nLast probe: ${n.last_probe || "-"}`;
+    }
+  }
+
+  function colorFor(n) {
+    if (n.type === "ip") {
+      return (n.alive && n.alive > 0) ? { background: "#fef3c7", border: "#f59e0b" }
+                                      : { background: "#fff7ed", border: "#fdba74" };
+    } else {
+      return n.alive ? { background: "#dcfce7", border: "#16a34a" }
+                     : { background: "#fee2e2", border: "#ef4444" };
+    }
+  }
+
+  // initial load
+  loadClusters();
+</script>
+{% endblock %}

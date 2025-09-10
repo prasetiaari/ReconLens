@@ -1,0 +1,79 @@
+{# app/templates/subdomains_ip_clusters.html #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-4">
+  <h2 class="text-xl font-semibold">
+    IP Clusters — <span class="text-gray-600">{{ scope }}</span>
+  </h2>
+  <a href="/targets/{{ scope }}" class="text-blue-500 hover:underline text-sm">← Back to target</a>
+</div>
+
+{% include "_target_tabs.html" %}
+
+<form method="get" hx-get="{{ request.url.path }}" hx-target="#graph-container" hx-push-url="true"
+      class="grid grid-cols-12 gap-4 items-end mb-4">
+  <div class="col-span-3">
+    <label class="block text-xs text-gray-500 mb-1">Filter host (q)</label>
+    <input type="text" name="q" value="{{ request.query_params.get('q','') }}"
+           class="w-full border rounded px-2 py-1 text-sm" placeholder="e.g. admin">
+  </div>
+  <div class="col-span-2">
+    <label class="block text-xs text-gray-500 mb-1">Min hosts/IP</label>
+    <input type="number" name="min_hosts" value="{{ request.query_params.get('min_hosts','1') }}"
+           class="w-full border rounded px-2 py-1 text-sm">
+  </div>
+  <div class="col-span-2">
+    <label class="block text-xs text-gray-500 mb-1">Limit IPs</label>
+    <input type="number" name="limit_ips" value="{{ request.query_params.get('limit_ips','200') }}"
+           class="w-full border rounded px-2 py-1 text-sm">
+  </div>
+  <div class="col-span-2">
+    <label class="block text-xs text-gray-500 mb-1">Limit hosts/IP</label>
+    <input type="number" name="limit_hosts_per_ip" value="{{ request.query_params.get('limit_hosts_per_ip','150') }}"
+           class="w-full border rounded px-2 py-1 text-sm">
+  </div>
+  <div class="col-span-2 flex gap-2">
+    <button type="submit"
+            class="bg-blue-600 text-white text-sm px-3 py-2 rounded hover:bg-blue-700">Apply</button>
+    <a href="{{ request.url.path }}"
+       class="bg-gray-100 text-sm px-3 py-2 rounded hover:bg-gray-200">Reset</a>
+  </div>
+</form>
+
+<div id="graph-container" class="border rounded bg-white p-2">
+  <div id="graph" style="width: 100%; height: 600px;"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/dist/vis-network.min.js"></script>
+<script>
+async function loadGraph() {
+  const url = "{{ api_url }}?{{ request.query_params|toquerystring }}";
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const nodes = new vis.DataSet(data.nodes);
+    const edges = new vis.DataSet(data.edges);
+
+    const container = document.getElementById('graph');
+    const networkData = { nodes, edges };
+    const options = {
+      nodes: {
+        shape: "ellipse",
+        font: { size: 14 },
+      },
+      edges: {
+        arrows: { to: false },
+        color: { color: "#ccc" }
+      },
+      physics: { stabilization: true },
+      interaction: { hover: true, dragNodes: true }
+    };
+    new vis.Network(container, networkData, options);
+  } catch (err) {
+    document.getElementById('graph').innerText = "Error loading graph: " + err;
+  }
+}
+loadGraph();
+</script>
+{% endblock %}

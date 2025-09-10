@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-semibold">Status Codes — {{ scope }}</h1>
+  <p class="text-slate-500 text-sm">Ringkasan HTTP status-code per modul, bisa difilter domain/host.</p>
+</div>
+
+<form id="filter-form" class="grid grid-cols-12 gap-3 items-end mb-4">
+  <!-- Modules multi-select -->
+<div class="col-span-12 md:col-span-4 relative" id="modules-field">
+  <label class="block text-xs text-slate-500 mb-1">Modules (pilih 1+; kosong = semua)</label>
+
+  <!-- chips pilihan -->
+  <div id="modules-chips" class="flex flex-wrap gap-2 mb-1"></div>
+
+  <!-- hidden input untuk submit -->
+  <input type="hidden" name="modules" id="modules-hidden" value="{{ modules or '' }}">
+
+  <!-- tombol open dropdown -->
+  <button type="button" id="modules-btn"
+          class="w-full rounded border px-3 py-2 text-sm text-left bg-white">
+    <span id="modules-btn-label" class="text-slate-500">Select modules ▾</span>
+  </button>
+
+  <!-- dropdown menu -->
+  <div id="modules-menu"
+       class="absolute z-20 mt-1 w-full bg-white border rounded shadow hidden max-h-64 overflow-auto">
+    <div class="p-2 text-xs text-slate-500">Loading…</div>
+  </div>
+</div>
+  <div class="col-span-12 md:col-span-3">
+    <label class="block text-xs text-slate-500 mb-1">Host contains</label>
+    <input name="host_contains" value="{{ host_contains or '' }}" placeholder="mis. admin"
+           class="w-full rounded border px-3 py-2 text-sm">
+  </div>
+  <div class="col-span-12 md:col-span-3">
+    <label class="block text-xs text-slate-500 mb-1">Host exact</label>
+    <input name="host_exact" value="{{ host_exact or '' }}" placeholder="mis. app.example.com"
+           class="w-full rounded border px-3 py-2 text-sm">
+  </div>
+  <div class="col-span-6 md:col-span-1">
+    <button id="apply" type="submit"
+            class="w-full rounded bg-slate-900 text-white px-3 py-2 text-sm">Apply</button>
+  </div>
+  <div class="col-span-6 md:col-span-1">
+    <button id="reset" type="button"
+            class="w-full rounded border px-3 py-2 text-sm">Reset</button>
+  </div>
+</form>
+
+<div class="grid grid-cols-12 gap-4">
+  <div class="col-span-12 lg:col-span-7 rounded border bg-white p-3">
+    <div class="text-sm font-medium mb-2">Per-module — Stacked Bar</div>
+    <!-- Kunci tinggi chart supaya nggak super panjang -->
+    <div class="relative h-[320px] md:h-[380px]">
+      <canvas id="bar"></canvas>
+    </div>
+  </div>
+  <div class="col-span-12 lg:col-span-5 rounded border bg-white p-3">
+    <div class="text-sm font-medium mb-2">Total — Pie</div>
+    <div class="relative h-[280px] md:h-[320px]">
+      <canvas id="pie"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Drilldown table -->
+<div id="drill" class="mt-6 hidden">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm text-slate-600">
+      <span id="drill-title" class="font-medium"></span>
+      <span id="drill-sub" class="text-slate-400"></span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="drill-prev" class="px-2 py-1 border rounded text-sm">‹ Prev</button>
+      <button id="drill-next" class="px-2 py-1 border rounded text-sm">Next ›</button>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto rounded border bg-white">
+    <table class="w-full table-fixed border-separate border-spacing-0">
+      <thead class="bg-slate-100 text-slate-600 text-sm">
+        <tr>
+          <th class="px-3 py-2 text-left">url</th>
+          <th class="px-3 py-2 text-left">host</th>
+          <th class="px-3 py-2 text-left">code</th>
+          <th class="px-3 py-2 text-left">size</th>
+          <th class="px-3 py-2 text-left">title</th>
+          <th class="px-3 py-2 text-left">ctype</th>
+          <th class="px-3 py-2 text-left">last_probe</th>
+        </tr>
+      </thead>
+      <tbody id="drill-rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="mt-3 text-xs text-slate-500" id="meta"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function() {
+  const apiBase = {{ api_url|tojson }};
+  const scope   = {{ scope|tojson }};
+  const form    = document.getElementById('filter-form');
+  const metaEl  = document.getElementById('meta');
+
+  const barCtx = document.getElementById('bar').getContext('2d');
+  const pieCtx = document.getElementById('pie').getContext('2d');
+
+  let barChart, pieChart;
+   // ----- Modules multi-select (checklist dropdown) -----
+  const modulesField = document.getElementById('modules-field');
+  const modulesMenu  = document.getElementById('modules-menu');
+  const modulesBtn   = document.getElementById('modules-btn');
+  const modulesHidden= document.getElementById('modules-hidden');
+  const modulesChips = document.getElementById('modules-chips');
+  const modulesBtnLabel = document.getElementById('modules-btn-label');
+
+  let modulesOptions = []; // akan diisi dari API (Object.keys(data.modules))
+  let selectedModules = new Set(
+    (modulesHidden.value || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  );
+
+  function csvFromSet(set) {
+    return Array.from(set).join(',');
+  }
+
+  function renderChips() {
+    const items = Array.from(selectedModules);
+    modulesChips.innerHTML = items.length
+      ? items.map(m => `
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs">
+            ${escapeHTML(m)}
+            <button type="button" data-remove="${escapeHTML(m)}" class="text-slate-500 hover:text-slate-700">✕</button>
+          </span>`).join('')
+      : `<span class="text-xs text-slate-400">All modules</span>`;
+    modulesBtnLabel.textContent = items.length ? `${items.length} selected ▾` : 'Select modules ▾';
+
+    // hook remove (x)
+    modulesChips.querySelectorAll('button[data-remove]').forEach(btn => {
+      btn.onclick = () => {
+        selectedModules.delete(btn.getAttribute('data-remove'));
+        syncHidden();
+        renderMenu(); // update checkbox state
+        renderChips();
+      };
+    });
+  }
+
+  function syncHidden() {
+    modulesHidden.value = csvFromSet(selectedModules);
+  }
+
+  function renderMenu() {
+    const opts = modulesOptions.slice().sort();
+    if (!opts.length) {
+      modulesMenu.innerHTML = `<div class="p-2 text-xs text-slate-500">No modules</div>`;
+      return;
+    }
+    modulesMenu.innerHTML = `
+      <div class="p-2 border-b">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input id="mod-all" type="checkbox" ${selectedModules.size===0 ? 'checked' : ''}>
+          <span>All</span>
+        </label>
+      </div>
+      <div class="py-1">
+        ${opts.map(m => `
+          <label class="flex items-center gap-2 px-3 py-1 text-sm hover:bg-slate-50 cursor-pointer">
+            <input class="mod-opt" type="checkbox" value="${escapeHTML(m)}"
+                   ${selectedModules.size===0 ? '' : (selectedModules.has(m) ? 'checked' : '')}>
+            <span>${escapeHTML(m)}</span>
+          </label>
+        `).join('')}
+      </div>
+    `;
+
+    // behavior All
+    const allCb = modulesMenu.querySelector('#mod-all');
+    allCb.onclick = () => {
+      if (allCb.checked) {
+        selectedModules.clear(); // empty = all
+      } else {
+        // kalau dicentang lagi “All” dimatikan, fallback pilih semua secara eksplisit
+        selectedModules = new Set(opts);
+      }
+      syncHidden(); renderMenu(); renderChips();
+    };
+
+    // behavior item
+    modulesMenu.querySelectorAll('.mod-opt').forEach(cb => {
+      cb.onchange = () => {
+        const val = cb.value;
+        if (cb.checked) selectedModules.add(val); else selectedModules.delete(val);
+        // kalau set jadi kosong, artinya "All"
+        syncHidden(); renderMenu(); renderChips();
+      };
+    });
+  }
+
+  function toggleMenu(show) {
+    modulesMenu.classList.toggle('hidden', !show);
+  }
+
+  modulesBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleMenu(modulesMenu.classList.contains('hidden'));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!modulesField.contains(e.target)) toggleMenu(false);
+  });
+  
+  function buildQuery(params) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k,v]) => {
+      if (v !== undefined && v !== null && String(v).trim() !== '') {
+        qs.set(k, String(v).trim());
+      }
+    });
+    return qs.toString() ? apiBase + '?' + qs.toString() : apiBase;
+  }
+
+  function readParams() {
+    const fd = new FormData(form);
+    return {
+      modules: (fd.get('modules') || '').toString(),
+      host_contains: (fd.get('host_contains') || '').toString(),
+      host_exact: (fd.get('host_exact') || '').toString()
+    };
+  }
+
+  async function fetchData() {
+    const url = buildQuery(readParams());
+    const t0 = performance.now();
+    const res = await fetch(url);
+    const json = await res.json();
+    const t1 = performance.now();
+    render(json);
+    metaEl.textContent = `scope=${json.meta?.scope ?? scope} · records=${json.meta?.records ?? '-'} · fetch ${(t1-t0).toFixed(1)}ms · modules=${(json.meta?.filtered_modules||[]).join(', ')||'(all)'}`
+      + (json.meta?.host_exact ? ` · host_exact=${json.meta.host_exact}` : '')
+      + (json.meta?.host_contains ? ` · host_contains~=${json.meta.host_contains}` : '');
+  }
+
+  function render(data) {
+    const order = ['2xx','3xx','4xx','5xx','other'];
+    const palette = {'2xx':'#16a34a','3xx':'#0ea5e9','4xx':'#f59e0b','5xx':'#ef4444','other':'#64748b'};
+    const modules = Object.keys(data.modules || {}).sort();
+
+    // setelah const modules = Object.keys(data.modules || {}).sort();
+    modulesOptions = modules.length ? modules : modulesOptions; // update opsi dari API
+    renderMenu();        // refresh daftar checkbox
+    renderChips();       // refresh chips & label
+    
+    // --- Stacked Bar per module ---
+    const datasets = order.map(cls => ({
+      label: cls,
+      data: modules.map(m => data.modules[m]?.[cls] ?? 0),
+      backgroundColor: palette[cls]
+    }));
+
+    const manyModules = modules.length > 6; // auto horizontal kalau banyak
+    const barOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: manyModules ? 'y' : 'x',
+      scales: { x: { stacked:true, beginAtZero:true }, y: { stacked:true, beginAtZero:true } },
+      plugins: { legend: { position:'bottom' } }
+    };
+
+    if (barChart) barChart.destroy();
+    barChart = new Chart(barCtx, { type:'bar', data: { labels: modules, datasets }, options: barOptions });
+
+    // --- Pie total ---
+    const total = data.total || {};
+    const pieData = {
+      labels: order,
+      datasets: [{ data: order.map(k => total[k] ?? 0), backgroundColor: order.map(k => palette[k]) }]
+    };
+    const pieOptions = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' } } };
+    if (pieChart) pieChart.destroy();
+    pieChart = new Chart(pieCtx, { type:'pie', data: pieData, options: pieOptions });
+    pieChart.__moduleName = (modules.length === 1) ? modules[0] : null; // pie drilldown hanya kalau 1 modul terpilih
+    if (window.bindStatusCodesDrilldown) {
+      window.bindStatusCodesDrilldown(barChart, pieChart);
+}
+  }
+
+  function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    fetchData();
+    const p = readParams();
+    const qs = new URLSearchParams(p);
+    history.replaceState(null, '', qs.toString() ? `?${qs}` : location.pathname);
+  });
+
+  document.getElementById('reset').addEventListener('click', () => {
+    form.modules.value = '';
+    form.host_contains.value = '';
+    form.host_exact.value = '';
+    fetchData();
+    history.replaceState(null, '', location.pathname);
+  });
+
+  // initial
+  fetchData();
+})();
+</script>
+
+<script>
+(() => {
+  // helper ambil nilai input filter yang sudah ada di halaman kamu
+  const $ = s => document.querySelector(s);
+  function val(sel){ const el = $(sel); return el ? (el.value ?? el.textContent ?? "") : ""; }
+
+  // state
+  let lastReq = null;
+
+  async function loadDrill({module, klass, page=1, page_size=50}) {
+    // sesuaikan dengan form-mu
+    const host_q = (document.querySelector('input[name="host_exact"]')?.value
+                || document.querySelector('input[name="host_contains"]')?.value
+                || "").trim();
+    // kamu belum punya filter substring URL, jadi kosongkan saja:
+    const q = "";
+
+    const scope = {{ scope|tojson }};
+    const params = new URLSearchParams({ module, klass, host_q, q, page, page_size });
+    const url = `/targets/${encodeURIComponent(scope)}/api/graphs/status-codes/list.json?` + params.toString();
+
+    const res = await fetch(url);
+    const data = await res.json();
+    renderDrill(data);
+  }
+
+  function renderDrill(data){
+    $('#drill').classList.remove('hidden');
+    $('#drill-title').textContent = `${data.meta.module} • ${data.meta.klass}`;
+    $('#drill-sub').textContent   = `— ${data.meta.total} rows (page ${data.meta.page}/${data.meta.pages})`;
+
+    const tbody = $('#drill-rows');
+    tbody.innerHTML = data.rows.map(r => `
+      <tr class="border-t align-top">
+        <td class="px-3 py-2 font-mono text-[13px] whitespace-pre-wrap break-all"><a href="${r.url}" target="_blank" class="text-blue-700 underline">${r.url}</a></td>
+        <td class="px-3 py-2 font-mono text-[12px]">${r.host ?? '-'}</td>
+        <td class="px-3 py-2">${r.code ?? '-'}</td>
+        <td class="px-3 py-2">${r.size != null ? (r.size/1024).toFixed(1)+' KB' : '-'}</td>
+        <td class="px-3 py-2 truncate max-w-[36ch]" title="${r.title ?? ''}">${r.title ?? '-'}</td>
+        <td class="px-3 py-2 text-[12px]">${r.content_type ?? '-'}</td>
+        <td class="px-3 py-2 text-[12px]">${r.last_probe ?? '-'}</td>
+      </tr>
+    `).join('');
+
+    // pagination
+    $('#drill-prev').onclick = () => {
+      if (data.meta.page > 1) loadDrill({...lastReq, page: data.meta.page - 1});
+    };
+    $('#drill-next').onclick = () => {
+      if (data.meta.page < data.meta.pages) loadDrill({...lastReq, page: data.meta.page + 1});
+    };
+  }
+
+  // ===== Wire ke chart (Chart.js) =====
+  // Panggil ini setelah chart bar/pie dibuat.
+  // Ubah nama variabel chart sesuai milikmu.
+  window.bindStatusCodesDrilldown = function(chartBar, chartPie) {
+    // Bar: label X = module, dataset = class (2xx..)
+    if (chartBar) {
+      chartBar.canvas.onclick = (evt) => {
+        const pts = chartBar.getElementsAtEventForMode(evt, 'nearest', {intersect:true}, true);
+        if (!pts.length) return;
+        const p = pts[0];
+        const module = chartBar.data.labels[p.index];
+        const klass  = chartBar.data.datasets[p.datasetIndex].label;
+        loadDrill({module, klass, page:1});
+      };
+    }
+    // Pie: label = class, single module (kalau pie per-module)
+    if (chartPie && chartPie.__moduleName) {
+      chartPie.canvas.onclick = (evt) => {
+        const pts = chartPie.getElementsAtEventForMode(evt, 'nearest', {intersect:true}, true);
+        if (!pts.length) return;
+        const p = pts[0];
+        const klass = chartPie.data.labels[p.index];
+        loadDrill({module: chartPie.__moduleName, klass, page:1});
+      };
+    }
+  };
+
+  // Contoh manual (debug dari console): loadDrill({module:'sensitive_paths', klass:'5xx'})
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,98 @@
+{# app/templates/_summary_cards.html #}
+{# Defensive defaults so the partial never explodes #}
+{% set dash = dash or {} %}
+{% set totals = dash.get('totals', {}) %}
+{% set status_counts = dash.get('status_counts', {}) %}
+{% set ctypes = dash.get('ctypes', {}) %}
+{% set last_probe_iso = dash.get('last_probe_iso') %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+  <!-- Total URLs -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Total URLs</div>
+    <div class="mt-1 text-2xl font-semibold">{{ totals.get('urls', 0) }}</div>
+    <div class="mt-2 text-xs text-slate-500">All indexed URLs across modules</div>
+  </div>
+
+  <!-- Live URLs -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Live URLs (HTTP OK-ish)</div>
+    <div class="mt-1 text-2xl font-semibold">{{ totals.get('urls_alive', 0) }}</div>
+    <div class="mt-2 text-xs text-slate-500">Alive = probed & returned any status</div>
+  </div>
+
+  <!-- Unique Hosts -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Unique Hosts</div>
+    <div class="mt-1 text-2xl font-semibold">{{ totals.get('hosts', 0) }}</div>
+    <div class="mt-2 text-xs text-slate-500">Distinct FQDNs seen in data</div>
+  </div>
+
+  <!-- Last Probe -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Last Probe</div>
+    <div class="mt-1 text-xl font-medium">
+      {% if last_probe_iso %}
+        {# Use timeago filter if registered; otherwise show raw ISO #}
+        {% if has_timeago %}
+  {{ dash.last_probe_iso|timeago }}
+{% else %}
+  {{ dash.last_probe_iso or '-' }}
+{% endif %}
+      {% else %}
+        <span class="text-slate-400">-</span>
+      {% endif %}
+    </div>
+    <div class="mt-2 text-xs text-slate-500">Most recent probe completion</div>
+  </div>
+</div>
+
+<div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+  <!-- Top HTTP Status Codes -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Top HTTP Status Codes</div>
+      <span class="text-xs text-slate-500">top 5</span>
+    </div>
+    {% set code_items = status_counts | dictsort(by='value') | reverse %}
+    <ul class="mt-2 space-y-1 text-[13px]">
+      {% set shown = 0 %}
+      {% for code, cnt in code_items %}
+        {% if shown < 5 %}
+          <li class="flex justify-between">
+            <span class="text-slate-600">{{ code }}</span>
+            <span class="font-medium">{{ cnt }}</span>
+          </li>
+          {% set shown = shown + 1 %}
+        {% endif %}
+      {% endfor %}
+      {% if shown == 0 %}
+        <li class="text-slate-400">No data</li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <!-- Top Content-Types -->
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Top Content-Types</div>
+      <span class="text-xs text-slate-500">top 3</span>
+    </div>
+    {% set ct_items = ctypes | dictsort(by='value') | reverse %}
+    <ul class="mt-2 space-y-1 text-[13px]">
+      {% set shown = 0 %}
+      {% for key, val in ct_items %}
+        {% if shown < 3 %}
+          <li class="flex justify-between">
+            <span class="text-slate-600">{{ key }}</span>
+            <span class="font-medium">{{ val }}</span>
+          </li>
+          {% set shown = shown + 1 %}
+        {% endif %}
+      {% endfor %}
+      {% if shown == 0 %}
+        <li class="text-slate-400">No data</li>
+      {% endif %}
+    </ul>
+  </div>
+</div>

@@ -1,0 +1,50 @@
+{% set st = status or {} %}
+{% set s = st.get('status', 'idle') %}
+{% set done = st.get('done', 0) %}
+{% set total = st.get('total', 0) %}
+{% set alive = st.get('alive', 0) %}
+{% set updated = st.get('updated_at') %}
+{% set started = st.get('started_at') %}
+{% set last_at = st.get('last_success_at') %}
+{% set last_mode = st.get('last_mode') %}
+{% set last_total = st.get('last_total') %}
+{% set last_alive = st.get('last_alive') %}
+{% set last_dur = st.get('last_duration_ms') %}
+
+<div id="probe-status" hx-swap-oob="true"
+     class="text-sm text-slate-600 flex items-center gap-3">
+
+  {% if s == 'running' %}
+    <span class="px-2 py-1 rounded bg-amber-50 text-amber-700">running</span>
+    <span>{{ done }}/{{ total }} done · alive={{ alive }}</span>
+    {% if updated %}<span class="text-slate-400">(updated {{ updated }})</span>{% endif %}
+
+  {% elif s == 'error' %}
+    <span class="px-2 py-1 rounded bg-rose-50 text-rose-700">error</span>
+    <span>{{ st.get('error','unknown') }}</span>
+
+  {% else %}
+    {% if last_at %}
+      <span class="px-2 py-1 rounded bg-emerald-50 text-emerald-700">last probe</span>
+      <span title="{{ last_at }}">
+        {{ last_at|timeago }}
+      </span>
+      <span class="text-slate-500">• {{ last_mode or 'all' }} • {{ last_total or 0 }} total • alive {{ last_alive or 0 }}</span>
+      {% if last_dur %}
+        <span class="text-slate-400">• {{ (last_dur/1000)|round(1) }}s</span>
+      {% endif %}
+    {% else %}
+      <span class="px-2 py-1 rounded bg-slate-100 text-slate-600">never probed</span>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if s == 'done' %}
+
+<!-- sekali: refresh rows -->
+<div hx-get="/targets/{{ scope }}/subdomains/rows?page={{ page }}&page_size={{ page_size }}{% if q %}&q={{ q|urlencode }}{% endif %}"
+       hx-trigger="load"
+       hx-target="#rows"
+       hx-swap="innerHTML"></div>
+{% endif %}
+<script>setTimeout(()=>document.getElementById('probe-status')?.remove(),2000)</script>

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ scope }} / subdomains{% endblock %}
+
+{% block content %}
+<div id="page" class="space-y-4">  {# <- penting: id="page" untuk htmx #}
+
+  {# --- Tabs tepat di bawah judul halaman --- #}
+  {% set active = "subdomains" %}
+  {% include "_target_tabs.html" with context %}
+
+  {# --- Toolbar atas: search, toggle alive, rows/page & pager --- #}
+  <form
+    class="flex items-center gap-3"
+    hx-get="{{ page_url }}"
+    hx-target="#page"
+    hx-select="#page"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+    hx-trigger="submit, change from:input[name='alive']"
+  >
+    <input
+      type="text"
+      name="q"
+      value="{{ q or '' }}"
+      placeholder="filter (substring)"
+      class="w-72 border rounded px-3 py-2"
+    />
+
+    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" name="alive" value="1" {% if alive %}checked{% endif %} />
+      live domain only
+    </label>
+
+    <!-- reset ke page 1 & pertahankan rows/page -->
+    <input type="hidden" name="page" value="1" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+
+    <button type="submit" class="px-4 py-2 rounded bg-slate-900 text-white">
+      Apply
+    </button>
+  </form>
+
+  {# --- Pager top --- #}
+  {% include "_pager.html" %}
+
+  {# --- Tabel --- #}
+  <div class="overflow-x-auto rounded border bg-white">
+    <table class="w-full table-fixed border-separate border-spacing-0 rounded-xl overflow-hidden">
+      <thead class="bg-slate-100 text-slate-700">
+        <tr class="bg-slate-100 text-slate-600 text-sm">
+          <th class="px-4 py-2 text-left w-[36ch]">URL</th>
+          <th class="px-12 py-2 text-left">status</th>
+          <th class="px-4 py-2 text-left">last_probe</th>
+          <th class="px-4 py-2 text-left">response_code</th>
+          <th class="px-4 py-2 text-left">response_size</th>
+          <th class="p-3 text-left max-w-[20ch]">title</th>
+          <th class="px-4 py-2 text-left">action</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        {% for host in rows %}
+          {% set rec = enrich.get(host) %}
+          {# Bangun URL final: pakai scheme dari enrich kalau ada, default https #}
+          {% set final_url = (rec.get('scheme') ~ '://' ~ host) if rec and rec.get('scheme') else ('https://' ~ host) %}
+          <tr class="border-t">
+            <td class="px-4 py-2 font-mono text-[13px]"><a href="{{ final_url }}" target=_blank>{{ final_url }}</a></td>
+            <td class="px-12 py-4">
+              {% if rec %}
+                {% if rec.get('alive') %}
+                  <span class="text-green-600">up</span>
+                {% else %}
+                  <span class="text-rose-600">down</span>
+                {% endif %}
+              {% else %}-{% endif %}
+            </td>
+            <td class="p-3 text-xs text-slate-500">
+              {{ rec.get('last_probe') if rec else '-' }}
+            </td>
+            <td class="px-4 py-2">{{ rec.get('code') if rec else '-' }}</td>
+            <td class="px-4 py-2">
+              {% if rec and rec.get('size') is not none %}
+                {{ (rec.get('size')/1024)|round(1) }} KB
+              {% else %}-{% endif %}
+            </td>
+            <td class="px-4 py-2 truncate max-w-[60ch]">
+              {% if rec and rec.get('title') %}
+                <span title="{{ rec.get('title') }}">{{ rec.get('title') }}</span>
+              {% else %}-{% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if rec and rec.get('scheme') %}
+                <a class="text-blue-700 underline"
+                   href="{{ rec.get('scheme') }}://{{ host }}" target="_blank" rel="noopener">open</a>
+              {% else %}
+                <span class="text-slate-400">open</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# --- Pager bottom --- #}
+  {% include "_pager.html" %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,177 @@
+{# app/templates/overview.html #}
+{% extends "base.html" %}
+{% block title %}Overview — {{ scope }}{% endblock %}
+
+{% block content %}
+{% set active = 'overview' %}
+{% include "_target_tabs.html" with context %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-semibold">Overview — <span class="font-mono">{{ scope }}</span></h1>
+  <p class="text-slate-500 text-sm">Ringkasan target dan tren cepat.</p>
+</div>
+
+{# ====== KPI cards ====== #}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+  <div class="rounded border bg-white p-4">
+    <div class="text-xs text-slate-500">TOTAL URLs</div>
+    <div id="kpi-total" class="mt-1 text-3xl font-semibold">-</div>
+    <div class="text-xs text-slate-400 mt-1">All indexed URLs across modules</div>
+  </div>
+  <div class="rounded border bg-white p-4">
+    <div class="text-xs text-slate-500">LIVE URLs</div>
+    <div id="kpi-live" class="mt-1 text-3xl font-semibold">-</div>
+    <div class="text-xs text-slate-400 mt-1">Alive = probed & returned any status</div>
+  </div>
+  <div class="rounded border bg-white p-4">
+    <div class="text-xs text-slate-500">UNIQUE HOSTS</div>
+    <div id="kpi-hosts" class="mt-1 text-3xl font-semibold">–</div>
+    <div class="text-xs text-slate-400 mt-1">Distinct FQDNs seen in data</div>
+  </div>
+  <div class="rounded border bg-white p-4">
+    <div class="text-xs text-slate-500">LAST PROBE</div>
+    <div id="kpi-last" class="mt-1 text-3xl font-semibold">–</div>
+    <div class="text-xs text-slate-400 mt-1">Most recent probe completion</div>
+  </div>
+</div>
+
+{# ====== Row: Status Codes & Content Types ====== #}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="rounded border bg-white p-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-sm font-medium">Top HTTP Status Codes</div>
+      <a href="/targets/{{ scope }}/graphs/status-codes"
+         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm">
+        View graphs →
+      </a>
+    </div>
+    <div class="relative h-[260px] md:h-[300px]">
+      <canvas id="status-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="rounded border bg-white p-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-sm font-medium">Top Content-Types</div>
+      <a href="/targets/{{ scope }}/graphs"
+         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm">
+        View full graphs →
+      </a>
+    </div>
+    <div class="relative h-[260px] md:h-[300px]">
+      <canvas id="ctype-chart"></canvas>
+    </div>
+  </div>
+</div>
+
+{# (Optional) Mini breakdown placeholder — bisa diisi nanti #}
+<div class="mt-6">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm text-slate-600">Per-module — mini breakdown</div>
+    <a href="/targets/{{ scope }}/graphs"
+       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm">
+      View full graphs →
+    </a>
+  </div>
+  <div id="mini-breakdown" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+    {# diisi nanti; untuk sekarang biarkan kosong #}
+  </div>
+</div>
+
+<div id="meta" class="mt-3 text-xs text-slate-500"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(() => {
+  const scope = {{ scope|tojson }};
+  const apiStatus = `/targets/${encodeURIComponent(scope)}/api/overview/status-codes.json`;
+  const apiCtypes = `/targets/${encodeURIComponent(scope)}/api/overview/content-types.json`;
+
+  const $ = s => document.querySelector(s);
+  const meta = $('#meta');
+
+  // KPIs (placeholder – isi cepat dari status API/ctype API bila tersedia)
+  function setKPI({ total=null, live=null, hosts=null, last=null }){
+    if (total != null) $('#kpi-total').textContent = total.toLocaleString();
+    if (live  != null) $('#kpi-live').textContent  = live.toLocaleString();
+    if (hosts != null) $('#kpi-hosts').textContent = hosts === '-' ? '–' : hosts;
+    if (last  != null) $('#kpi-last').textContent  = last ?? '–';
+  }
+
+  // Draw status-codes stacked bar
+  let statusChart;
+  async function loadStatus() {
+    const t0 = performance.now();
+    const res = await fetch(apiStatus);
+    const data = await res.json();
+    const t1 = performance.now();
+
+    // items = [{klass:'2xx'|'3xx'|'4xx'|'5xx'|'other', count:int}]
+    const order = ['2xx','3xx','4xx','5xx','other'];
+    const palette = {'2xx':'#16a34a','3xx':'#0ea5e9','4xx':'#f59e0b','5xx':'#ef4444','other':'#64748b'};
+    const totals = Object.fromEntries(order.map(k => [k, 0]));
+
+    (data.items || []).forEach(it => { totals[it.klass] = it.count || 0; });
+
+    // KPI total/live: kita asumsikan total = sum semua klass; live = total - other (approx)
+    const totalSum = order.reduce((a,k) => a + (totals[k]||0), 0);
+    const liveSum  = totalSum - (totals.other || 0);
+    setKPI({ total: totalSum, live: liveSum });
+
+    const ctx = document.getElementById('status-chart').getContext('2d');
+    if (statusChart) statusChart.destroy();
+    statusChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['all modules'],
+        datasets: order.map(k => ({
+          label: k,
+          data: [totals[k] || 0],
+          backgroundColor: palette[k],
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+        plugins: { legend: { position: 'bottom' } },
+      },
+    });
+
+    meta.textContent = `scope=${data.meta?.scope ?? scope} · status_records=${data.meta?.records ?? '-'} · fetch ${(t1-t0).toFixed(1)}ms`;
+  }
+
+  // Draw content-types horizontal bar
+  let ctypeChart;
+  async function loadCtypes(){
+    const res = await fetch(apiCtypes);
+    const data = await res.json();
+    // items = [{ctype, count}]
+    const items = (data.items || []).slice(0, 8); // top 8
+    const labels = items.map(d => d.ctype || '(unknown)');
+    const counts = items.map(d => d.count || 0);
+
+    const ctx = document.getElementById('ctype-chart').getContext('2d');
+    if (ctypeChart) ctypeChart.destroy();
+    ctypeChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'count', data: counts }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true } }
+      }
+    });
+  }
+
+  // init
+  loadStatus();
+  loadCtypes();
+})();
+</script>
+{% endblock %}

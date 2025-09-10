@@ -1,0 +1,34 @@
+{# _target_tabs.html #}
+{# var yg dipakai:
+   - scope   : target scope (wajib)
+   - active  : salah satu dari "overview" | "subdomains" | "sensitive" | "graphs"
+#}
+
+<div class="sticky top-[64px] z-30 bg-slate-50/90 backdrop-blur border-b border-slate-200">
+  <nav class="max-w-7xl mx-auto px-4 py-2 flex gap-2">
+    {# helper class #}
+    {% set base = "px-4 py-2 rounded-xl text-sm font-medium" %}
+    {% set on   = "bg-slate-900 text-white shadow" %}
+    {% set off  = "bg-slate-100 text-slate-700 hover:bg-slate-200" %}
+
+    <a href="/targets/{{ scope }}"
+       class="{{ base }} {{ 'overview' == active and on or off }}">
+      Overview
+    </a>
+
+    <a href="/targets/{{ scope }}/subdomains"
+       class="{{ base }} {{ 'subdomains' == active and on or off }}">
+      Subdomains
+    </a>
+
+    <a href="/targets/{{ scope }}/sensitive_paths"
+       class="{{ base }} {{ 'sensitive' == active and on or off }}">
+      Sensitive Paths
+    </a>
+
+    <a href="/targets/{{ scope }}/graphs"
+       class="{{ base }} {{ 'graphs' == active and on or off }}">
+      Graphs
+    </a>
+  </nav>
+</div>

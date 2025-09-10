@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-semibold">Status Codes — {{ scope }}</h1>
+  <p class="text-slate-500 text-sm">Distribusi status HTTP per modul (stacked bar).</p>
+</div>
+
+<div class="bg-white rounded-lg border border-slate-200 p-4">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm text-slate-500" id="meta"></div>
+    <div class="flex gap-2 text-xs">
+      <span class="inline-flex items-center gap-1"><span class="w-3 h-3 inline-block" style="background:#16a34a"></span>2xx</span>
+      <span class="inline-flex items-center gap-1"><span class="w-3 h-3 inline-block" style="background:#22c55e"></span>3xx</span>
+      <span class="inline-flex items-center gap-1"><span class="w-3 h-3 inline-block" style="background:#f59e0b"></span>4xx</span>
+      <span class="inline-flex items-center gap-1"><span class="w-3 h-3 inline-block" style="background:#ef4444"></span>5xx</span>
+      <span class="inline-flex items-center gap-1"><span class="w-3 h-3 inline-block" style="background:#94a3b8"></span>other</span>
+    </div>
+  </div>
+  <div id="chart-wrap" class="w-full h-[420px] overflow-x-auto">
+    <svg id="chart" class="min-w-[640px] w-full h-full"></svg>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+(function() {
+  const dataUrl = {{ data_url|tojson }};
+
+  const svg = d3.select("#chart");
+  const wrap = document.getElementById("chart-wrap");
+  const metaEl = document.getElementById("meta");
+
+  const margin = {top: 24, right: 12, bottom: 42, left: 56};
+  let width  = wrap.clientWidth  - margin.left - margin.right;
+  let height = wrap.clientHeight - margin.top  - margin.bottom;
+  const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const seriesOrder = ["2xx","3xx","4xx","5xx","other"];
+  const color = d3.scaleOrdinal()
+    .domain(seriesOrder)
+    .range(["#16a34a","#22c55e","#f59e0b","#ef4444","#94a3b8"]);
+
+  function resize() {
+    width  = wrap.clientWidth  - margin.left - margin.right;
+    height = wrap.clientHeight - margin.top  - margin.bottom;
+    svg.attr("width", width + margin.left + margin.right)
+       .attr("height", height + margin.top + margin.bottom);
+  }
+  resize();
+
+  fetch(dataUrl).then(r => r.json()).then(json => {
+    const modulesObj = json.modules || {};
+    const meta = json.meta || {};
+    const modules = Object.keys(modulesObj);
+    const rows = modules.map(m => {
+      const rec = modulesObj[m] || {};
+      return {
+        module: m,
+        "2xx": +rec["2xx"] || 0,
+        "3xx": +rec["3xx"] || 0,
+        "4xx": +rec["4xx"] || 0,
+        "5xx": +rec["5xx"] || 0,
+        "other": +rec["other"] || 0
+      };
+    });
+
+    metaEl.textContent = `scope=${meta.scope || '-'} · records=${meta.records ?? '-'} · modules=${modules.length}`;
+
+    // scales
+    const x = d3.scaleBand().domain(modules).range([0, width]).padding(0.24);
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(rows, d => seriesOrder.reduce((s,k)=>s + d[k], 0)) || 1])
+      .nice()
+      .range([height, 0]);
+
+    const stack = d3.stack().keys(seriesOrder);
+    const stacked = stack(rows);
+
+    // axes
+    g.append("g").attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x))
+      .selectAll("text").style("font-size", "11px");
+    g.append("g")
+      .call(d3.axisLeft(y).ticks(6))
+      .selectAll("text").style("font-size", "11px");
+
+    // bars
+    g.selectAll("g.layer")
+      .data(stacked)
+      .join("g")
+        .attr("class", "layer")
+        .attr("fill", d => color(d.key))
+      .selectAll("rect")
+      .data(d => d)
+      .join("rect")
+        .attr("x", d => x(d.data.module))
+        .attr("y", d => y(d[1]))
+        .attr("height", d => Math.max(0, y(d[0]) - y(d[1])))
+        .attr("width", x.bandwidth())
+        .append("title")
+        .text(d => {
+          const key = this?.parentNode?.__data__?.key || ""; // fallback
+          const total = seriesOrder.reduce((s,k)=>s + d.data[k], 0);
+          return `${d.data.module}\n${seriesOrder.map(k => `${k}: ${d.data[k]}`).join("\n")}\nTotal: ${total}`;
+        });
+
+    // responsive
+    new ResizeObserver(() => {
+      resize();
+      svg.selectAll("*").remove();
+      // re-render
+      const g2 = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+      const x2 = d3.scaleBand().domain(modules).range([0, width]).padding(0.24);
+      const y2 = d3.scaleLinear()
+        .domain([0, d3.max(rows, d => seriesOrder.reduce((s,k)=>s + d[k], 0)) || 1])
+        .nice()
+        .range([height, 0]);
+      g2.append("g").attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x2)).selectAll("text").style("font-size", "11px");
+      g2.append("g").call(d3.axisLeft(y2).ticks(6)).selectAll("text").style("font-size", "11px");
+      const stack2 = d3.stack().keys(seriesOrder)(rows);
+      g2.selectAll("g.layer")
+        .data(stack2)
+        .join("g")
+          .attr("class", "layer")
+          .attr("fill", d => color(d.key))
+        .selectAll("rect")
+        .data(d => d)
+        .join("rect")
+          .attr("x", d => x2(d.data.module))
+          .attr("y", d => y2(d[1]))
+          .attr("height", d => Math.max(0, y2(d[0]) - y2(d[1])))
+          .attr("width", x2.bandwidth())
+          .append("title")
+          .text(d => {
+            const total = seriesOrder.reduce((s,k)=>s + d.data[k], 0);
+            return `${d.data.module}\n${seriesOrder.map(k => `${k}: ${d.data[k]}`).join("\n")}\nTotal: ${total}`;
+          });
+    }).observe(wrap);
+  });
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,62 @@
+  {% for url in rows %}
+    {% set rec = enrich.get(url) or enrich.get(url.rstrip('/')) or {} %}
+
+    <tr class="border-b last:border-0">
+      <!-- URL -->
+      <td class="p-3 font-mono text-[13px] break-all">
+        <a class="text-blue-700 hover:underline" href="{{ url }}" target="_blank" rel="noopener">
+          {{ url }}
+        </a>
+      </td>
+
+      <!-- status -->
+      <td class="p-3">
+        {% if rec.get('alive') is not none %}
+          {% if rec.get('alive') %}
+            <span class="text-green-600">up</span>
+          {% else %}
+            <span class="text-rose-600">down</span>
+          {% endif %}
+        {% else %}
+          <span class="text-slate-400">-</span>
+        {% endif %}
+      </td>
+
+      <!-- code -->
+      <td class="p-3">
+        {{ rec.get('code') if rec.get('code') is not none else '-' }}
+      </td>
+
+      <!-- size -->
+      <td class="p-3">
+        {% if rec.get('size') is not none %}
+          {{ rec.get('size')|humansize }}
+        {% else %}
+          -
+        {% endif %}
+      </td>
+
+      <!-- title -->
+      <td class="p-3 truncate max-w-[52ch]">
+        {% if rec.get('title') %}
+          <span title="{{ rec.get('title') }}">{{ rec.get('title') }}</span>
+        {% else %}
+          <span class="text-slate-400">-</span>
+        {% endif %}
+      </td>
+
+      <!-- last_probe -->
+      <td class="p-3 text-xs text-slate-500 whitespace-nowrap">
+        {% if rec.get('last_probe_iso') %}
+          {{ rec.get('last_probe_iso')|timeago }}
+        {% else %}
+          <span class="text-slate-400">-</span>
+        {% endif %}
+      </td>
+
+      <!-- action -->
+      <td class="p-3">
+        <a class="text-blue-700 hover:underline" href="{{ url }}" target="_blank" rel="noopener">open</a>
+      </td>
+    </tr>
+  {% endfor %}

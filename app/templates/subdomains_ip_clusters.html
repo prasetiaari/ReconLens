@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Header + Controls -->
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">
+    IP Clusters — <span class="font-mono">{{ scope }}</span>
+  </h1>
+  <a href="{{ back_url or ('/targets/' ~ scope) }}" class="text-sm text-blue-600 hover:underline">← Back to target</a>
+</div>
+
+<form class="grid grid-cols-12 gap-4 items-end mb-3" method="get" action="">
+  <div class="col-span-12 sm:col-span-3">
+    <label class="block text-xs text-gray-500 mb-1">Filter host (q)</label>
+    <input name="q" value="{{ q or '' }}" placeholder="e.g. admin"
+           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"/>
+  </div>
+  <div class="col-span-6 sm:col-span-3">
+    <label class="block text-xs text-gray-500 mb-1">Min hosts/IP</label>
+    <input name="min_hosts" value="{{ min_hosts or 1 }}" type="number" min="1"
+           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"/>
+  </div>
+  <div class="col-span-6 sm:col-span-3">
+    <label class="block text-xs text-gray-500 mb-1">Limit IPs</label>
+    <input name="limit_ips" value="{{ limit_ips or 200 }}" type="number" min="1"
+           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"/>
+  </div>
+  <div class="col-span-6 sm:col-span-2">
+    <label class="block text-xs text-gray-500 mb-1">Limit hosts/IP</label>
+    <input name="limit_hosts_per_ip" value="{{ limit_hosts_per_ip or 150 }}" type="number" min="1"
+           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"/>
+  </div>
+  <div class="col-span-6 sm:col-span-1">
+    <button class="w-full rounded-md bg-gray-900 text-white px-3 py-2 text-sm hover:bg-gray-800">Apply</button>
+  </div>
+</form>
+
+<div class="text-xs text-gray-500 mb-2">
+  [Clusters] nodes={{ nodes_count or '-' }} edges={{ edges_count or '-' }}
+  params="{{ params_json or '{}' }}"
+</div>
+
+<!-- Canvas + Side panel layout -->
+<div class="relative bg-white rounded-lg border border-gray-200 overflow-hidden">
+  <!-- svg container -->
+  <div id="graph-wrap" class="h-[74vh]">
+    <svg id="graph" class="w-full h-full"></svg>
+  </div>
+
+  <!-- Right side panel -->
+  <aside id="side-panel"
+         class="absolute top-0 right-0 h-full w-[360px] max-w-[90vw] bg-white border-l border-gray-200 shadow-xl translate-x-full transition-transform duration-200">
+    <div class="flex items-center justify-between px-4 py-3 border-b">
+      <div class="text-sm font-semibold">Details</div>
+      <button id="panel-close" class="text-gray-500 hover:text-gray-700">✕</button>
+    </div>
+    <div id="panel-body" class="p-4 space-y-3 text-sm overflow-y-auto h-[calc(74vh-52px)]">
+      <!-- populated by JS -->
+    </div>
+  </aside>
+</div>
+
+<!-- Controls (zoom/pan) -->
+<div class="mt-2 flex items-center gap-2">
+  <button id="zoom-in"  class="rounded-md border px-2 py-1 text-sm">＋</button>
+  <button id="zoom-out" class="rounded-md border px-2 py-1 text-sm">－</button>
+  <button id="reset"    class="rounded-md border px-2 py-1 text-sm">Reset</button>
+</div>
+
+<!-- D3 -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+(function () {
+  const dataUrl = {{ data_url|tojson }};
+  const scope   = {{ scope|tojson }};
+
+  const svg   = d3.select("#graph");
+  const wrap  = d3.select("#graph-wrap");
+  const panel = document.getElementById("side-panel");
+  const panelBody = document.getElementById("panel-body");
+
+  // sizing
+  let width  = wrap.node().clientWidth;
+  let height = wrap.node().clientHeight;
+
+  const g = svg.append("g");
+  const linkG = g.append("g").attr("stroke", "#bbb").attr("stroke-opacity", 0.6);
+  const nodeG = g.append("g");
+  const labelG= g.append("g");
+
+  // zoom
+  const zoom = d3.zoom().scaleExtent([0.2, 4]).on("zoom", (ev) => g.attr("transform", ev.transform));
+  svg.call(zoom);
+  document.getElementById("zoom-in").onclick  = () => svg.transition().call(zoom.scaleBy, 1.2);
+  document.getElementById("zoom-out").onclick = () => svg.transition().call(zoom.scaleBy, 1/1.2);
+  document.getElementById("reset").onclick    = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
+
+  // panel helpers
+  function openPanel(html) {
+    panelBody.innerHTML = html || "";
+    panel.style.transform = "translateX(0)";
+  }
+  function closePanel() {
+    panel.style.transform = "translateX(100%)";
+    clearHighlight();
+  }
+  document.getElementById("panel-close").onclick = closePanel;
+
+  // highlight
+  let highlighted = new Set();
+  function clearHighlight() {
+    highlighted.clear();
+    nodeSel.classed("dim", false).classed("hl", false);
+    linkSel.classed("dim", false).classed("hl", false);
+  }
+  function applyHighlight(keepSet) {
+    highlighted = keepSet;
+    nodeSel.classed("hl", d => keepSet.has(d.id))
+           .classed("dim", d => !keepSet.has(d.id));
+    linkSel.classed("hl", d => keepSet.has(d.source.id) && keepSet.has(d.target.id))
+           .classed("dim", d => !(keepSet.has(d.source.id) && keepSet.has(d.target.id)));
+  }
+
+  // styles via CSS classes
+  const style = document.createElement("style");
+  style.textContent = `
+    .node-host circle { fill: #e6f0ff; stroke: #5b8def; }
+    .node-ip   rect   { fill: #fff8dc; stroke: #e0b100; rx: 5; ry: 5; }
+    .hl { filter: drop-shadow(0 0 3px rgba(34,197,94,.9)); }
+    .dim { opacity: .2; }
+    text.label { font: 11px/1.2 ui-sans-serif, system-ui, -apple-system; fill: #334155; pointer-events: none; }
+  `;
+  document.head.appendChild(style);
+
+  let nodeSel, linkSel, labelSel, sim;
+
+  fetch(dataUrl).then(r => r.json()).then(render);
+
+  function render(data) {
+    // data: { nodes: [{id, label, kind:'host'|'ip', deg?}], edges: [{source, target}] }
+    const nodes = data.nodes.map(d => Object.assign({}, d));
+    const links = data.edges.map(d => Object.assign({}, d));
+
+    // force
+    sim = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id(d => d.id).distance(l => (l.kind === 'tight' ? 20 : 40)))
+      .force("charge", d3.forceManyBody().strength(-120))
+      .force("center", d3.forceCenter(width/2, height/2))
+      .on("tick", ticked);
+
+    linkSel = linkG.selectAll("line").data(links).join("line")
+      .attr("stroke-width", 1);
+
+    nodeSel = nodeG.selectAll("g.node").data(nodes, d => d.id).join(enterNode);
+
+    labelSel = labelG.selectAll("text.label").data(nodes, d => d.id).join("text")
+      .attr("class", "label")
+      .attr("text-anchor", "middle")
+      .text(d => d.label);
+
+    svg.on("dblclick.zoom", null); // disable dblclick zoom
+
+    // resize handler
+    new ResizeObserver(() => {
+      width  = wrap.node().clientWidth;
+      height = wrap.node().clientHeight;
+      svg.attr("width", width).attr("height", height);
+      sim.force("center", d3.forceCenter(width/2, height/2)).alpha(0.3).restart();
+    }).observe(wrap.node());
+  }
+
+  function enterNode(sel) {
+    const g = sel.append("g")
+      .attr("class", d => "node " + (d.kind === 'ip' ? 'node-ip' : 'node-host'))
+      .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+
+    // shape
+    g.each(function(d) {
+      const el = d3.select(this);
+      if (d.kind === 'ip') {
+        el.append("rect").attr("x", -26).attr("y", -12).attr("width", 52).attr("height", 24);
+      } else {
+        el.append("circle").attr("r", 12);
+      }
+    });
+
+    // click handler
+    g.on("click", function (event, d) {
+      event.stopPropagation();
+      if (d.kind === 'host') {
+        // highlight ego network
+        const keep = new Set([d.id]);
+        linkSel.each(l => {
+          if (l.source.id === d.id) keep.add(l.target.id);
+          if (l.target.id === d.id) keep.add(l.source.id);
+        });
+        applyHighlight(keep);
+
+        // Build neighbor lists
+        const ips = [];
+        const hosts = [];
+        linkSel.each(l => {
+          if (l.source.id === d.id || l.target.id === d.id) {
+            const other = l.source.id === d.id ? l.target : l.source;
+            if (other.kind === 'ip') ips.push(other);
+            else hosts.push(other);
+          }
+        });
+
+        openPanel(`
+          <div class="space-y-2">
+            <div>
+              <div class="text-xs text-gray-500">Host</div>
+              <div class="font-mono text-sm font-medium">${escapeHTML(d.label)}</div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <div class="text-xs text-gray-500 mb-1">IPs (${ips.length})</div>
+                <div class="flex flex-wrap gap-1">
+                  ${ips.map(ip => `<span class="px-2 py-0.5 rounded border text-xs">${escapeHTML(ip.label)}</span>`).join("")}
+                </div>
+              </div>
+              <div>
+                <div class="text-xs text-gray-500 mb-1">Neighbor hosts (${hosts.length})</div>
+                <div class="flex flex-wrap gap-1">
+                  ${hosts.slice(0, 20).map(h => `<span class="px-2 py-0.5 rounded bg-gray-50 border text-xs">${escapeHTML(h.label)}</span>`).join("")}
+                  ${hosts.length > 20 ? `<span class="text-xs text-gray-500">+${hosts.length-20} more</span>` : ""}
+                </div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t">
+              <div class="text-xs text-gray-500 mb-1">Subdomains list</div>
+              <a class="text-blue-600 hover:underline text-sm"
+                 href="/targets/${encodeURIComponent(scope)}/subdomains?q=${encodeURIComponent(d.label)}&page_size=100"
+                 target="_blank">Open in subdomains table →</a>
+            </div>
+          </div>
+        `);
+      } else {
+        // clicked an IP node — show grouped hosts that share this IP
+        const hosts = [];
+        linkSel.each(l => {
+          if (l.source.id === d.id && l.target.kind === 'host') hosts.push(l.target);
+          if (l.target.id === d.id && l.source.kind === 'host') hosts.push(l.source);
+        });
+
+        const keep = new Set([d.id, ...hosts.map(h => h.id)]);
+        applyHighlight(keep);
+
+        openPanel(`
+          <div class="space-y-2">
+            <div>
+              <div class="text-xs text-gray-500">IP</div>
+              <div class="font-mono text-sm font-medium">${escapeHTML(d.label)}</div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 mb-1">Hosts (${hosts.length})</div>
+              <div class="flex flex-wrap gap-1">
+                ${hosts.map(h => `<span class="px-2 py-0.5 rounded bg-blue-50 border text-xs">${escapeHTML(h.label)}</span>`).join("")}
+              </div>
+            </div>
+          </div>
+        `);
+      }
+    });
+
+    // background click clears
+    svg.on("click", () => {
+      closePanel();
+      clearHighlight();
+    });
+
+    return g;
+  }
+
+  function ticked() {
+    linkSel
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+
+    nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+    labelSel.attr("x", d => d.x).attr("y", d => d.y - 16);
+  }
+
+  function dragstarted(event, d) {
+    if (!event.active) sim.alphaTarget(0.3).restart();
+    d.fx = d.x; d.fy = d.y;
+  }
+  function dragged(event, d) {
+    d.fx = event.x; d.fy = event.y;
+  }
+  function dragended(event, d) {
+    if (!event.active) sim.alphaTarget(0);
+    d.fx = null; d.fy = null;
+  }
+
+  function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+})();
+</script>
+
+{% endblock %}

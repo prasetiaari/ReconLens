@@ -1,0 +1,33 @@
+{# app/templates/graphs_index.html #}
+{% extends "base.html" %}
+{% block content %}
+  {% set active = 'graphs' %}
+  {% include "_target_tabs.html" with context %}
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-semibold">Graphs — {{ scope }}</h1>
+    <p class="text-slate-500 text-sm">Eksplorasi visual untuk target ini.</p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <a href="/targets/{{ scope }}/graphs/subdomains/"
+       class="block rounded-xl border border-slate-200 p-4 hover:shadow-sm">
+      <div class="text-sm font-semibold text-slate-700 mb-1">Subdomains → IP Clusters</div>
+      <div class="text-slate-500 text-sm">Kelompokkan host berdasarkan IP; klik host/IP untuk drill-down.</div>
+    </a>
+
+<a href="/targets/{{ scope }}/graphs/status-codes"
+   class="block rounded-xl border border-slate-200 p-4 hover:shadow-sm">
+  <div class="text-sm font-semibold text-slate-700 mb-1">Status Codes Overview</div>
+  <div class="text-slate-500 text-sm">Distribusi 2xx/3xx/4xx/5xx/other per modul, via stacked bar chart.</div>
+</a>
+
+    {# Placeholder untuk graph lain ke depan #}
+    <div class="rounded-xl border border-dashed border-slate-200 p-4 text-slate-400">
+      (Coming soon) Subdomains → ASN / Org clusters
+    </div>
+    <div class="rounded-xl border border-dashed border-slate-200 p-4 text-slate-400">
+      (Coming soon) Sensitive Paths → Link graph
+    </div>
+  </div>
+{% endblock %}
