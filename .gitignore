@@ -1,0 +1,12 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore cache in any subfolder
+**/__pycache__/
+
+# Ignore everything inside outputs/
+outputs/
+
