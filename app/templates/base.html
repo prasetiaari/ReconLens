@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>{% block title %}Pentest URLs Viewer{% endblock %}</title>
+  <title>{% block title %}{{ module_name }} — {{ scope }} | ReconLens{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -11,15 +11,58 @@
 </head>
 <body class="bg-slate-50 text-slate-800">
   <header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-10">
-    <div class="max-w-6xl mx-auto flex items-center justify-between">
-      <a href="/" class="font-semibold">Pentest URLs Viewer</a>
-      <div class="text-sm text-slate-500">read-only · filesystem</div>
+  <div class="max-w-6xl mx-auto flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <!-- Logo -->
+      <img src="/static/img/reconlens-logo.png" alt="ReconLens" class="h-10">
+
+      <!-- Breadcrumbs -->
+      <nav class="text-base text-slate-600 font-medium">
+          {% if scope %}
+            <a href="/" class="hover:underline">ReconLens</a>
+            <span class="mx-1">/</span>
+            <a href="/targets/{{ scope }}" class="hover:underline">{{ scope }}</a>
+            {% if module_name %}
+              <span class="mx-1">/</span>
+              <span class="font-semibold">{{ module_name|lower }}</span>
+            {% endif %}
+          {% else %}
+            <span class="font-semibold">ReconLens</span>
+          {% endif %}
+        </nav>
     </div>
-  </header>
+
+    <div class="text-sm text-slate-500">read-only · filesystem</div>
+  </div>
+</header>
 
   <main class="max-w-6xl mx-auto p-6">
     {% block content %}{% endblock %}
     
   </main>
+  
+<style>
+  .text-monospace{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                 "Liberation Mono","Courier New", monospace;
+  }
+  /* Header style & width locking – mirip sensitive_paths */
+  .thead-compact th{
+    font-size:.9rem;
+    font-weight:600;
+    color:#475569;          /* slate-600 */
+    letter-spacing:.02em;
+    vertical-align:middle;
+  }
+  .th-num  { width:56px;   white-space:nowrap; text-align:left; }
+  .th-url  { min-width:480px; }
+  .th-status{ width:120px; white-space:nowrap; }
+  .th-code { width:90px;   white-space:nowrap; }
+  .th-size { width:120px;  white-space:nowrap; }
+  .th-title{ min-width:180px; }
+  .th-last { width:160px;  white-space:nowrap; }
+  .th-act  { width:80px;   white-space:nowrap; }
+</style>
 </body>
+
 </html>

@@ -22,8 +22,18 @@
     </a>
 
     <a href="/targets/{{ scope }}/sensitive_paths"
-       class="{{ base }} {{ 'sensitive' == active and on or off }}">
+       class="{{ base }} {{ 'SENSITIVE_PATHS' == active and on or off }}">
       Sensitive Paths
+    </a>
+    
+    <a href="/targets/{{ scope }}/open_redirect"
+       class="{{ base }} {{ 'OPEN_REDIRECT' == active and on or off }}">
+      Open Redirect
+    </a>
+    
+    <a href="/targets/{{ scope }}/documents"
+       class="{{ base }} {{ 'DOCUMENTS' == active and on or off }}">
+      Documents
     </a>
 
     <a href="/targets/{{ scope }}/graphs"

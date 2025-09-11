@@ -1,0 +1,24 @@
+{% for r in rows %}
+<tr class="border-b last:border-0">
+
+  <td class="p-3 font-mono text-[13px] break-all">
+    <a href="{{ r.url }}" target="_blank" rel="noreferrer"
+       class="text-decoration-none text-monospace">{{ r.url }}</a>
+    {% if r.param_hit %}
+      <span class="badge bg-warning text-dark ms-1">{{ r.param_hit }}</span>
+    {% elif r.has_query %}
+      <span class="badge bg-light text-muted ms-1">query</span>
+    {% endif %}
+  </td>
+
+  <td class="p-3 text-slate-600">{{ r.status }}</td>
+  <td class="p-3 text-slate-600">{{ r.code }}</td>
+  <td class="p-3 text-slate-600">{{ r.size }}</td>
+  <td class="p-3 truncate max-w-[52ch]">{{ r.title }}</td>
+  <td class="p-3 text-xs text-slate-500 whitespace-nowrap">{{ r.last_probe }}</td>
+
+  <td class="p-3">
+    <a class="text-blue-700 hover:underline" href="{{ r.url }}" target="_blank" rel="noopener">open</a>
+  </td>
+</tr>
+{% endfor %}

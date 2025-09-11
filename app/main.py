@@ -1,86 +1,87 @@
 from __future__ import annotations
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
 from datetime import datetime, timezone
-from dateutil import parser as dtparser 
+from time import perf_counter
+
+from fastapi import FastAPI, Request, APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates      # ⬅ konsisten
+from fastapi.responses import RedirectResponse
+from dateutil import parser as dtparser
 
 from app.config import Settings
-from app.routers import sensitive_paths as sensitive_paths_router
+
+# Routers
 from app.routers import home as home_router
 from app.routers import targets as targets_router
-from app.routers import graphs_subdomains as graphs_subdomains_router
+#from app.routers import sensitive_paths as sensitive_paths_router
 from app.routers import subdomains as subdomains_router
+from app.routers import graphs_subdomains as graphs_subdomains_router
 from app.routers import graphs as graphs_router
-
-#from app.routers.graphs import api as graphs_api_router, pages as graphs_pages_router
-from app.routers.overview_status_codes import router as overview_status_codes_router
-from app.routers.overview_api import router as overview_api_router
-from app.routers.overview_pages import router as overview_pages_router
-
-from app.routers.graphs import pages_router as graphs_pages_router
 from app.routers.graphs.pages_index import router as graphs_pages_index_router
 from app.routers.graphs.page_ip_clusters import router as graphs_pages_ip_clusters_router
 from app.routers.graphs.api_subdomains import router as graphs_api_subdomains_router
 from app.routers.graphs import api_router as graphs_api_router, pages_router as graphs_pages_router
-from app.routers import overview_api 
+from app.routers.overview_api import router as overview_api_router
+from app.routers.overview_pages import router as overview_pages_router
+from app.routers.overview_status_codes import router as overview_status_codes_router
 
-
-from app.routers import subdomains as subdomains_router
+# NEW generic viewer
 from app.routers import viewer as viewer_router
-from time import perf_counter
-from fastapi import Request
-
-
-
 
 def create_app() -> FastAPI:
-    settings = Settings()  # load once
+    settings = Settings()
     app = FastAPI(title="Pentest URLs Viewer", version="0.1.0")
 
     # Templates (Jinja)
     templates = Jinja2Templates(directory=str(settings.TEMPLATES_DIR))
-    templates.env.filters["humansize"] = humansize
-    templates.env.filters["timeago"]   = timeago
-
     from jinja2.bccache import FileSystemBytecodeCache
     import os
     cache_dir = os.path.join(os.getcwd(), ".jinja_cache")
     os.makedirs(cache_dir, exist_ok=True)
     templates.env.bytecode_cache = FileSystemBytecodeCache(directory=cache_dir)
-
     templates.env.filters["humansize"] = humansize
     templates.env.filters["timeago"] = timeago
 
     app.state.templates = templates
     app.state.settings = settings
 
-    # Static (optional)
+    # Static
     app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
 
-    # Routers
+    # Routers (tanpa duplikat)
+    app.include_router(home_router.router)
+    app.include_router(targets_router.router)
+    app.include_router(subdomains_router.router)
+    #app.include_router(sensitive_paths_router.router)
+
+    # Generic module viewer (OPEN_REDIRECT dkk)
+    app.include_router(viewer_router.router)
+
+    # Overview & Graphs
     app.include_router(overview_api_router)
     app.include_router(overview_pages_router)
     app.include_router(overview_status_codes_router)
-    app.include_router(home_router.router)
-    app.include_router(targets_router.router)
-    app.include_router(sensitive_paths_router.router)
-    app.include_router(subdomains_router.router)
-    app.include_router(viewer_router.router)
+
     app.include_router(graphs_subdomains_router.router)
-    app.include_router(subdomains_router.router)
-    app.include_router(graphs_pages_router)
-    
     app.include_router(graphs_pages_index_router)
     app.include_router(graphs_pages_ip_clusters_router)
     app.include_router(graphs_api_subdomains_router)
     app.include_router(graphs_api_router)
     app.include_router(graphs_pages_router)
-    #app.include_router(overview_api.router)
-    
-    
-    # init in-memory caches
-    app.state.probe_cache = {}   # key: scope -> {"mtime": float, "data": dict[host->rec]}
+
+    # Alias: /targets/{scope}/open_redirect -> /targets/{scope}/module/open_redirect
+    alias_router = APIRouter()
+    @alias_router.get("/targets/{scope}/open_redirect")
+    def open_redirect_alias(scope: str):
+        return RedirectResponse(url=f"/targets/{scope}/module/open_redirect")
+    app.include_router(alias_router)   # ⬅ PENTING: include alias
+
+    @alias_router.get("/targets/{scope}/documents")
+    def documents_alias(scope: str):
+        return RedirectResponse(url=f"/targets/{scope}/module/documents")
+    app.include_router(alias_router)   # ⬅ PENTING: include alias
+    # in-memory caches
+    app.state.probe_cache = {}
     return app
 
 def humansize(n):
@@ -116,6 +117,7 @@ def timeago(iso_str: str):
 
 app = create_app()
 
+# Debug daftar route
 for r in app.router.routes:
     try:
         mod = getattr(r, "endpoint", None)
@@ -131,7 +133,6 @@ async def timing_mw(request: Request, call_next):
     response = await call_next(request)
     t1 = perf_counter()
     path = request.url.path
-    # jangan spam untuk static
     if not path.startswith("/static"):
         print(f"[perf] {request.method} {path} total={(t1-t0)*1000:.1f}ms", flush=True)
     return response
