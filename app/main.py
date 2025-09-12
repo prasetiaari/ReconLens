@@ -12,6 +12,7 @@ from app.config import Settings
 
 # Routers
 from app.routers import home as home_router
+from app.routers import targets_api as targets_api_router
 from app.routers import targets as targets_router
 #from app.routers import sensitive_paths as sensitive_paths_router
 from app.routers import subdomains as subdomains_router
@@ -68,7 +69,8 @@ def create_app() -> FastAPI:
     app.include_router(graphs_api_subdomains_router)
     app.include_router(graphs_api_router)
     app.include_router(graphs_pages_router)
-
+    app.include_router(targets_api_router.router)
+    
     # Alias: /targets/{scope}/open_redirect -> /targets/{scope}/module/open_redirect
     alias_router = APIRouter()
     @alias_router.get("/targets/{scope}/open_redirect")

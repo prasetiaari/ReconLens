@@ -1,17 +1,118 @@
 {% extends "base.html" %}
-{% block title %}Targets · Pentest URLs Viewer{% endblock %}
+{% block title %}Targets · ReconLens{% endblock %}
+
 {% block content %}
-<h1 class="text-2xl font-semibold mb-4">Targets</h1>
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-semibold">Targets</h1>
+  <button
+    class="btn btn-primary"
+    onclick="document.getElementById('addTargetModal').classList.remove('hidden')">
+    + Add target
+  </button>
+</div>
+
 {% if scopes %}
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for s in scopes %}
-    <a href="/targets/{{ s }}" class="block p-4 rounded-xl bg-white shadow hover:shadow-md transition">
-      <div class="text-lg font-medium">{{ s }}</div>
-      <div class="text-sm text-slate-500">open report</div>
-    </a>
+      <a href="/targets/{{ s }}" class="block p-4 rounded-xl bg-white shadow hover:shadow-md transition">
+        <div class="text-lg font-medium">{{ s }}</div>
+        <div class="text-sm text-slate-500">open report</div>
+      </a>
     {% endfor %}
   </div>
 {% else %}
   <p class="text-slate-600">No targets found in <code>outputs/</code>.</p>
 {% endif %}
+
+<!-- Modal: Add Target -->
+<div id="addTargetModal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+  <div class="w-full max-w-lg rounded-xl bg-white shadow-lg">
+    <div class="flex items-center justify-between px-5 py-4 border-b">
+      <h2 class="text-lg font-semibold">Add Target</h2>
+      <button class="text-slate-500 hover:text-slate-700"
+              onclick="document.getElementById('addTargetModal').classList.add('hidden')">✕</button>
+    </div>
+
+    <form id="addTargetForm"
+          class="px-5 py-4 space-y-4"
+          hx-post="/targets/api/add"
+          hx-target="#addTargetErrors"
+          hx-swap="innerHTML"
+          hx-headers='{"Accept":"application/json"}'
+          onsubmit="return sanitizeScopeAndSubmit(event)">
+      <!-- Scope / domain -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">Scope (domain)</label>
+        <input id="scopeInput" name="scope"
+               class="input w-full"
+               placeholder="example.com"
+               required
+               inputmode="url"
+               pattern="^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$"
+               title="Masukkan domain valid, mis. example.com atau sub.example.co.id">
+        <p class="text-xs text-slate-500 mt-1">
+          Hanya domain (tanpa http://). Subdomain diperbolehkan.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="include_subs" class="checkbox">
+          <span class="text-sm">Include subdomains</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="auto_collect" class="checkbox" checked>
+          <span class="text-sm">Auto-collect (GAU)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="auto_probe" class="checkbox">
+          <span class="text-sm">Auto-probe after collect</span>
+        </label>
+      </div>
+
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">Seed URLs (optional)</label>
+        <textarea name="seed_urls" rows="4" class="input w-full font-mono text-xs"
+                  placeholder="https://sub.example.com/page
+https://example.com/docs/guide.pdf"></textarea>
+        <p class="text-xs text-slate-500 mt-1">Satu URL per baris.</p>
+      </div>
+
+      <div id="addTargetErrors" class="text-sm text-red-600"></div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t">
+        <button type="button" class="btn"
+                onclick="document.getElementById('addTargetModal').classList.add('hidden')">Cancel</button>
+        <button class="btn btn-primary">Create</button>
+      </div>
+    </form>
+
+    <!-- small helper: auto-redirect if backend sets HX-Redirect -->
+    <script>
+      function sanitizeScopeAndSubmit(ev){
+        const inp = document.getElementById('scopeInput');
+        // strip scheme/path if user paste URL
+        try{
+          let v = inp.value.trim();
+          if (v.startsWith('http://') || v.startsWith('https://')) {
+            const u = new URL(v);
+            v = u.hostname;
+          }
+          v = v.replace(/\/.*$/, ''); // drop any trailing path
+          inp.value = v.toLowerCase();
+        }catch{}
+        // let htmx handle submit
+        document.getElementById('addTargetForm')
+          .addEventListener('htmx:afterRequest', function(e){
+            // if server sends HX-Redirect, follow it; else reload on 201
+            const hxRedir = e.detail.xhr.getResponseHeader('HX-Redirect');
+            if (hxRedir) { window.location.href = hxRedir; return; }
+            if (e.detail.xhr.status === 201) { window.location.reload(); }
+          }, { once: true });
+        return true;
+      }
+    </script>
+  </div>
+</div>
 {% endblock %}

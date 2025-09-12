@@ -1,18 +1,86 @@
 {% extends "base.html" %}
 {% block title %}{{ scope }} · Pentest URLs Viewer{% endblock %}
+
 {% block content %}
 {% set active = "overview" %}
-  {% include "_target_tabs.html" with context %}
-<h1 class="text-2xl font-semibold mb-1">{{ scope }}</h1>
-<p class="text-sm text-slate-500 mb-6">
-  Generated: {{ summary.generated_at or 'n/a' }}
-</p>
+{% include "_target_tabs.html" with context %}
+
+{# Toolbar kecil (muncul kalau sudah ada urls.txt) #}
+{% if urls_count and urls_count > 0 %}
+  <div class="max-w-6xl mx-auto mt-3 mb-4 flex items-center justify-between">
+    <div class="text-sm text-slate-500">
+      URL corpus: <span class="font-medium text-slate-700">{{ "{:,}".format(urls_count) }}</span> lines
+    </div>
+    <div class="flex items-center gap-4">
+      <button id="rebuildBtn"   type="button" class="text-xs text-slate-500 hover:text-slate-700 hover:underline">
+        (re)build modules
+      </button>
+      <button id="recollectBtn" type="button" class="text-xs text-blue-600 hover:underline">
+        (re)collect
+      </button>
+    </div>
+  </div>
+{% endif %}
+
 <div class="grid">
-    
-{% include "_summary_cards.html" %}
-</div><br>
+  {% include "_summary_cards.html" %}
+</div>
+<br>
+
+{# Empty-state besar kalau belum ada urls.txt #}
+{% if not urls_count or urls_count == 0 %}
+  <div class="p-6 rounded-xl bg-white shadow border border-slate-200">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <div class="text-lg font-semibold text-slate-800 mb-1">No URL corpus yet</div>
+        <p class="text-slate-600">
+          Belum ada file
+          <code class="px-1 rounded bg-slate-100">outputs/{{ scope }}/urls.txt</code>.
+          Kumpulkan URL untuk target ini menggunakan salah satu opsi di bawah.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-3">
+      <a class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm"
+         href="/targets/{{ scope }}/collect/gau" target="_blank" rel="noopener">Collect with GAU</a>
+      <a class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
+         href="/targets/{{ scope }}/collect/waymore" target="_blank" rel="noopener">Collect with Waymore</a>
+    </div>
+
+    <div class="mt-3 text-xs text-slate-500">
+      Tip: proses berjalan di tab baru; kamu tetap bisa menjelajah menu lain sambil menunggu.
+    </div>
+  </div>
+{% endif %}
+
+{# Banner "No module files yet" jika urls.txt ADA tapi modul kosong #}
+{% set total_module_lines = (stats | map(attribute='lines') | sum) | default(0) %}
+{% if urls_count and urls_count > 0 and total_module_lines == 0 %}
+  <div class="p-6 rounded-xl bg-white shadow border border-slate-200 mt-4">
+    <div class="text-lg font-semibold text-slate-800 mb-1">No module files yet</div>
+    <p class="text-slate-600">
+      Kamu sudah punya <code class="px-1 rounded bg-slate-100">urls.txt</code>, tapi file-file modul belum dibuat.
+      Jalankan proses klasifikasi untuk membangun berkas modul
+      (<code class="px-1 rounded bg-slate-100">sensitive_paths.txt</code>,
+      <code class="px-1 rounded bg-slate-100">open_redirect.txt</code>,
+      <code class="px-1 rounded bg-slate-100">documents.txt</code>, dll).
+    </p>
+    <div class="mt-4 flex flex-wrap gap-3">
+      <button id="rebuildBtnSecondary"
+              class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">
+        (re)build modules
+      </button>
+      <a href="/targets/{{ scope }}" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">Refresh report</a>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      Proses berjalan di tab baru; kamu bisa tetap memakai aplikasi ini.
+    </p>
+  </div>
+{% endif %}
+
 {% if stats %}
-  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
     {% for st in stats %}
       <div class="p-4 rounded-xl bg-white shadow hover:shadow-md transition">
         <div class="flex items-start justify-between">
@@ -46,146 +114,92 @@
             <span class="ml-auto px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs">ready</span>
           {% endif %}
         </div>
-        
-        <!-- HTTP Status Overview -->
-        <!--
-<div class="rounded-xl border bg-white p-4 mt-4">
-  <div class="flex items-center justify-between mb-3">
-    <div>
-      <div class="text-sm font-semibold text-slate-700">HTTP Status (overview)</div>
-      <div id="http-status-meta" class="text-xs text-slate-500"></div>
-    </div>
-    <a class="text-sm text-blue-600 hover:underline"
-       href="/targets/{{ scope }}/graphs/status-codes">View graphs →</a>
-  </div>
-
-  <div class="grid grid-cols-12 gap-4">
-    <div class="col-span-12 md:col-span-5">
-      <div class="relative h-[180px]">
-        <canvas id="http-status-pie"></canvas>
-      </div>
-    </div>
-    <div class="col-span-12 md:col-span-7">
-      <div id="http-status-list" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm"></div>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script>
-(function(){
-  const scope = {{ scope|tojson }};
-  const api   = `/targets/${encodeURIComponent(scope)}/api/overview/status-codes.json`;
-
-  const metaEl = document.getElementById('http-status-meta');
-  const listEl = document.getElementById('http-status-list');
-  const ctx    = document.getElementById('http-status-pie').getContext('2d');
-
-  const order   = ['2xx','3xx','4xx','5xx','other'];
-  const palette = {'2xx':'#16a34a','3xx':'#0ea5e9','4xx':'#f59e0b','5xx':'#ef4444','other':'#64748b'};
-  let pie;
-
-  fetch(api).then(r=>r.json()).then(data => {
-    const totals = Object.fromEntries(order.map(k => [k, 0]));
-    (data.items||[]).forEach(it => { totals[it.klass] = it.count || 0; });
-
-    // meta
-    metaEl.textContent = `records=${data.meta?.records ?? '-'} · source=${data.meta?.source ?? '-'}`;
-
-    // list kartu kecil
-    listEl.innerHTML = order.map(k => `
-      <div class="rounded border p-3">
-        <div class="text-xs uppercase tracking-wide text-slate-500">${k}</div>
-        <div class="text-xl font-semibold" style="color:${palette[k]}">${totals[k]}</div>
-      </div>
-    `).join('');
-
-    // pie
-    const dataset = order.map(k => totals[k]);
-    if (pie) pie.destroy();
-    pie = new Chart(ctx, {
-      type: 'pie',
-      data: { labels: order, datasets: [{ data: dataset, backgroundColor: order.map(k => palette[k]) }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' } } }
-    });
-  }).catch(err => {
-    metaEl.textContent = 'failed to load overview';
-    console.error(err);
-  });
-})();
-</script>
--->
       </div>
     {% endfor %}
   </div>
 {% else %}
-  <div class="p-6 rounded-xl bg-white shadow">
+  <div class="p-6 rounded-xl bg-white shadow mt-4">
     <p class="text-slate-600">No module files found for this target.</p>
-    <p class="text-slate-500 text-sm mt-2">Pastikan folder
-      <code class="px-1 rounded bg-slate-100">outputs/{{ scope }}</code> berisi file seperti
-      <code class="px-1 rounded bg-slate-100">subdomains.txt</code>, <code class="px-1 rounded bg-slate-100">documents.txt</code>, dll.
-    </p>
   </div>
 {% endif %}
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script>
-(() => {
-  const scope = {{ scope|tojson }};
-  const elStatus = document.getElementById('status-codes-chart');   // <canvas> yang kamu tempatkan di kartu "Top HTTP Status Codes"
-  const elCtype  = document.getElementById('content-types-chart');  // <canvas> di kartu "Top Content-Types"
-  const elLast   = document.getElementById('last-probe-text');      // <span> di kartu "Last probe"
+{# =========================
+   MODALS
+   ========================= #}
 
-  // Helper timeago sederhana
-  function timeago(ts){
-    if(!ts) return "-";
-    const sec = Math.max(0, Math.floor(Date.now()/1000 - ts));
-    const d = Math.floor(sec/86400);
-    if (d>0) return d+"d ago";
-    const h = Math.floor(sec/3600);
-    if (h>0) return h+"h ago";
-    const m = Math.floor(sec/60);
-    if (m>0) return m+"m ago";
-    return sec+"s ago";
+<!-- (re)collect modal -->
+<div id="recollectModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-28 w-[92%] max-w-md rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Choose collector</div>
+      <button id="recollectClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+    <div class="p-5 space-y-3 text-sm">
+      <p class="text-slate-600">
+        Jalankan pengumpulan URL untuk <span class="font-mono">{{ scope }}</span>:
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <a href="/targets/{{ scope }}/collect/gau" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">GAU</a>
+        <a href="/targets/{{ scope }}/collect/waymore" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">Waymore</a>
+      </div>
+      <p class="text-xs text-slate-500">
+        Proses berjalan di tab baru; kamu bisa tetap memakai aplikasi ini.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- (re)build modules modal -->
+<div id="rebuildModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-28 w-[92%] max-w-md rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Build modules</div>
+      <button id="rebuildClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+    <div class="p-5 space-y-3 text-sm">
+      <p class="text-slate-600">
+        Jalankan proses klasifikasi URL menjadi file-file modul untuk
+        <span class="font-mono">{{ scope }}</span>.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <a href="/targets/{{ scope }}/rebuild" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run (re)build</a>
+      </div>
+      <p class="text-xs text-slate-500">
+        Ini akan memanggil ReconLens CLI dan memperbarui file modul di <code>outputs/{{ scope }}/</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function bindModal(openBtnId, modalId, closeBtnId){
+    const modal   = document.getElementById(modalId);
+    const openBtn = document.getElementById(openBtnId);
+    const closeBtn= document.getElementById(closeBtnId);
+
+    function open(){ modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); }
+    function close(){ modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); }
+
+    openBtn?.addEventListener('click', open);
+    closeBtn?.addEventListener('click', close);
+
+    modal?.addEventListener('click', (e)=>{
+      if (e.target === modal || (e.target.classList && e.target.classList.contains('bg-black/40'))) close();
+    });
+    document.addEventListener('keydown', (e)=>{
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    });
   }
 
-  // 1) Status codes (bar)
-  fetch(`/targets/${encodeURIComponent(scope)}/api/overview/status-codes.json`)
-    .then(r => r.json())
-    .then(j => {
-      if (!elStatus) return;
-      const labels = j.items.map(it => String(it.code));
-      const data   = j.items.map(it => it.count);
-      if (!labels.length) { elStatus.replaceWith(document.createTextNode("No data")); return; }
-      new Chart(elStatus.getContext('2d'), {
-        type: 'bar',
-        data: { labels, datasets: [{ label: 'count', data }] },
-        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }
-      });
-    });
-
-  // 2) Content-Types (bar)
-  fetch(`/targets/${encodeURIComponent(scope)}/api/overview/content-types.json`)
-    .then(r => r.json())
-    .then(j => {
-      if (!elCtype) return;
-      const labels = j.items.map(it => it.content_type);
-      const data   = j.items.map(it => it.count);
-      if (!labels.length) { elCtype.replaceWith(document.createTextNode("No data")); return; }
-      new Chart(elCtype.getContext('2d'), {
-        type: 'bar',
-        data: { labels, datasets: [{ label: 'count', data }] },
-        options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } } }
-      });
-    });
-
-  // 3) Last probe (text)
-  fetch(`/targets/${encodeURIComponent(scope)}/api/overview/last-probe.json`)
-    .then(r => r.json())
-    .then(j => {
-      if (!elLast) return;
-      elLast.textContent = timeago(j.last_probe_unixts || 0);
-    });
+  bindModal('recollectBtn',       'recollectModal', 'recollectClose');
+  bindModal('rebuildBtn',         'rebuildModal',   'rebuildClose');
+  bindModal('rebuildBtnSecondary','rebuildModal',   'rebuildClose');
 })();
 </script>
 

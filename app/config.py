@@ -29,6 +29,10 @@ class Settings(BaseModel):
     PAGE_SIZE_MAX: int = 1000
 
     MODULES: dict = MODULE_FILEMAP
+    GAU_BIN: str = "/usr/local/bin/gau"
+    WAYMORE_BIN: str = "/usr/local/bin/waymore"
+
+    
 
     class Config:
         arbitrary_types_allowed = True

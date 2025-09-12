@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}{{ tool }} · {{ scope }} · ReconLens CLI{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-4">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-xs uppercase tracking-wide text-slate-500">CLI Runner</div>
+      <h1 class="text-xl font-semibold">
+        <span class="font-mono text-slate-700">{{ tool }}</span>
+        <span class="text-slate-400">·</span>
+        <span class="font-mono">{{ scope }}</span>
+      </h1>
+    </div>
+    <div class="text-sm">
+      <a href="/targets/{{ scope }}" class="text-blue-600 hover:underline">← back to report</a>
+    </div>
+  </div>
+
+  <!-- Command hint -->
+  <div class="rounded-lg border bg-white p-4">
+    <div class="text-sm text-slate-600">
+      <div class="mb-1 font-medium text-slate-700">Command (hint):</div>
+      <pre class="font-mono text-[13px] bg-slate-50 rounded border px-3 py-2 overflow-x-auto">
+{% if tool in ["gau"] -%}
+gau --verbose --o outputs/{{ scope }}/urls.txt {{ scope }}
+{%- elif tool in ["waymore"] -%}
+waymore -i {{ scope }} -o -  | tee -a outputs/{{ scope }}/urls.txt
+{%- elif tool in ["build","rebuild"] -%}
+python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --out outputs/{{ scope }}
+{%- else -%}
+# unknown tool
+{%- endif %}
+      </pre>
+      {% if urls_txt %}
+      <div class="mt-2 text-xs text-slate-500">
+        Target URL corpus: <code class="bg-slate-50 px-1 rounded">{{ urls_txt }}</code>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <button id="runBtn"
+              class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">
+        Run
+      </button>
+      <button id="cancelBtn"
+              class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
+              disabled>
+        Cancel
+      </button>
+      {% if urls_txt %}
+      <a href="/targets/{{ scope }}/download/{{ urls_txt.split('/')[-1] }}"
+         class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
+         title="Download urls.txt">
+        Open urls.txt
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- View mode toggles -->
+    <div class="flex items-center gap-2 text-xs">
+      <span class="text-slate-500">view:</span>
+      <button id="modeWrap"  type="button"
+              class="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">
+        80ch wrap
+      </button>
+      <button id="modeScroll" type="button"
+              class="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50">
+        horizontal scroll
+      </button>
+    </div>
+  </div>
+
+  <!-- Console -->
+  <div id="termBox"
+       class="rounded-lg border bg-black text-slate-100 p-3 max-h-[70vh] overflow-auto">
+    <!-- DEFAULT: 80 kolom, wrap -->
+    <pre id="out"
+         class="font-mono text-[13px] leading-snug whitespace-pre-wrap break-words max-w-[80ch]"></pre>
+  </div>
+</div>
+
+<script>
+(function(){
+  const scope = {{ scope|tojson }};
+  const tool  = {{ tool|tojson }};
+
+  const runBtn    = document.getElementById('runBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const outEl     = document.getElementById('out');
+  const boxEl     = document.getElementById('termBox');
+
+  const btnWrap   = document.getElementById('modeWrap');
+  const btnScroll = document.getElementById('modeScroll');
+
+  let es = null;
+  let currentJob = null;
+
+  function normalizeToolForAPI(t){
+    // alias: 'rebuild' → 'build'
+    if (t === 'rebuild') return 'build';
+    return t;
+  }
+
+  function apiPath(kind, jobId){
+    const t = normalizeToolForAPI(tool);
+    if (kind === 'start')
+      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/start`;
+    if (kind === 'stream')
+      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/stream?job=${encodeURIComponent(jobId)}`;
+    if (kind === 'cancel')
+      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/cancel?job=${encodeURIComponent(jobId)}`;
+    return '#';
+  }
+
+  function append(text){
+    outEl.textContent += text;
+    boxEl.scrollTop = boxEl.scrollHeight;
+  }
+
+  function setRunning(on){
+    runBtn.disabled = on;
+    cancelBtn.disabled = !on;
+  }
+
+  function setWrap(){
+    outEl.classList.add('whitespace-pre-wrap','break-words','max-w-[80ch]');
+    outEl.classList.remove('whitespace-pre','max-w-none');
+    boxEl.classList.remove('overflow-x-auto');
+    boxEl.classList.add('overflow-auto');
+  }
+
+  function setScroll(){
+    outEl.classList.add('whitespace-pre','max-w-none');
+    outEl.classList.remove('whitespace-pre-wrap','break-words','max-w-[80ch]');
+    boxEl.classList.add('overflow-x-auto');
+  }
+
+  btnWrap?.addEventListener('click', setWrap);
+  btnScroll?.addEventListener('click', setScroll);
+  setWrap(); // default
+
+  async function startJob(){
+    if (es) { try { es.close(); } catch(_){} es = null; }
+    outEl.textContent = "";
+    setRunning(true);
+
+    const startURL = apiPath('start');
+    const startRes = await fetch(startURL, { method: 'POST' });
+    if (!startRes.ok){
+      append(`[error] Failed to start. HTTP ${startRes.status}\n`);
+      setRunning(false);
+      return;
+    }
+    const data = await startRes.json();
+    const jobId = data.job_id || data.jobId || null;
+    if (!jobId){
+      append("[error] No job id returned\n");
+      setRunning(false);
+      return;
+    }
+    currentJob = jobId;
+
+    const streamURL = apiPath('stream', jobId);
+    es = new EventSource(streamURL);
+    es.onmessage = (ev) => {
+      if (ev.data === '[[DONE]]'){
+        setRunning(false);
+        es.close(); es = null;
+        return;
+      }
+      append(ev.data + "\n");
+    };
+    es.onerror = () => {
+      append("[error] stream connection lost\n");
+      setRunning(false);
+      try { es.close(); } catch(_){}
+      es = null;
+    };
+  }
+
+  async function cancelJob(){
+    if (!currentJob) return;
+    try {
+      const cancelURL = apiPath('cancel', currentJob);
+      await fetch(cancelURL, { method: 'POST' });
+    } catch(_){}
+    setRunning(false);
+    if (es) { try { es.close(); } catch(_){ } es = null; }
+    append("[info] cancel requested\n");
+  }
+
+  runBtn?.addEventListener('click', startJob);
+  cancelBtn?.addEventListener('click', cancelJob);
+})();
+</script>
+{% endblock %}
