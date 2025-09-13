@@ -18,6 +18,9 @@
       <button id="recollectBtn" type="button" class="text-xs text-blue-600 hover:underline">
         (re)collect
       </button>
+      <button id="reprobeBtn"   type="button" class="text-xs text-rose-600 hover:underline">
+        (re)probe
+      </button>
     </div>
   </div>
 {% endif %}
@@ -69,7 +72,7 @@
     <div class="mt-4 flex flex-wrap gap-3">
       <button id="rebuildBtnSecondary"
               class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">
-        (re)build modules
+        build modules
       </button>
       <a href="/targets/{{ scope }}" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">Refresh report</a>
     </div>
@@ -166,11 +169,66 @@
         <span class="font-mono">{{ scope }}</span>.
       </p>
       <div class="flex flex-wrap gap-2">
-        <a href="/targets/{{ scope }}/rebuild" target="_blank" rel="noopener"
+        <a href="/targets/{{ scope }}/collect/build" target="_blank" rel="noopener"
            class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run (re)build</a>
       </div>
       <p class="text-xs text-slate-500">
         Ini akan memanggil ReconLens CLI dan memperbarui file modul di <code>outputs/{{ scope }}/</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- (re)probe modal (Active scan) -->
+<div id="reprobeModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-24 w-[92%] max-w-lg rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Run probes (active)</div>
+      <button id="reprobeClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-700">
+        ⚠️ <strong>Active scanning:</strong> Probing akan mengirim request HTTP ke target.
+        Ini bisa memakan waktu lama dan menghasilkan traffic besar. Pastikan kamu berizin.
+      </div>
+
+      <div class="space-y-2">
+        <div class="text-slate-700 font-medium">Scope</div>
+        <label class="flex items-center gap-2">
+          <input type="radio" name="probe_scope" value="all" checked class="accent-rose-600">
+          <span>Probe <span class="font-mono">{{ "{:,}".format(urls_count or 0) }}</span> URLs (all corpus)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="radio" name="probe_scope" value="module" class="accent-rose-600">
+          <span>Probe by module</span>
+        </label>
+        <div id="probeModuleWrap" class="mt-2 ml-6 hidden">
+          <select id="probeModuleSel" class="input w-full">
+            {% for st in stats %}
+              <option value="{{ st.module }}">{{ st.module }} ({{ st.lines }} lines)</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label class="flex items-start gap-2">
+        <input id="probeAgree" type="checkbox" class="mt-1 accent-rose-600">
+        <span class="text-slate-600">Saya paham ini adalah active scan dan saya memiliki izin untuk melakukannya.</span>
+      </label>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button id="probeRun" disabled
+                class="px-3 py-2 rounded-lg bg-rose-600 text-white text-sm disabled:opacity-50">
+          Run probe
+        </button>
+        <button id="reprobeClose2" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
+          Cancel
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Catatan: sementara tautan akan membuka tab baru (endpoint placeholder).
       </p>
     </div>
   </div>
@@ -195,11 +253,49 @@
     document.addEventListener('keydown', (e)=>{
       if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
     });
+    return { open, close, modal };
   }
 
+  // collect & build
   bindModal('recollectBtn',       'recollectModal', 'recollectClose');
   bindModal('rebuildBtn',         'rebuildModal',   'rebuildClose');
   bindModal('rebuildBtnSecondary','rebuildModal',   'rebuildClose');
+
+  // probe
+  const { modal: probeModal } = bindModal('reprobeBtn','reprobeModal','reprobeClose');
+  document.getElementById('reprobeClose2')?.addEventListener('click', ()=> {
+    probeModal.classList.add('hidden'); probeModal.setAttribute('aria-hidden','true');
+  });
+
+  const scope = {{ scope|tojson }};
+  const agree = document.getElementById('probeAgree');
+  const runBtn= document.getElementById('probeRun');
+  const modWrap = document.getElementById('probeModuleWrap');
+  const modSel  = document.getElementById('probeModuleSel');
+
+  function updateEnable(){
+    runBtn.disabled = !agree.checked;
+  }
+  agree?.addEventListener('change', updateEnable);
+  updateEnable();
+
+  // toggle module dropdown
+  Array.from(document.querySelectorAll('input[name="probe_scope"]')).forEach(r => {
+    r.addEventListener('change', ()=>{
+      modWrap.classList.toggle('hidden', r.value !== 'module' || !r.checked);
+    });
+  });
+
+  // Placeholder action: open new tab sesuai pilihan (endpoint belum diimplement)
+  runBtn?.addEventListener('click', ()=>{
+    const scopeChoice = document.querySelector('input[name="probe_scope"]:checked')?.value || 'all';
+    if (scopeChoice === 'module') {
+      const m = modSel?.value || 'documents';
+      window.open(`/targets/${encodeURIComponent(scope)}/probe/module/${encodeURIComponent(m)}`, '_blank');
+    } else {
+      window.open(`/targets/${encodeURIComponent(scope)}/probe/all`, '_blank');
+    }
+  });
 })();
 </script>
 

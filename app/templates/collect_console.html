@@ -19,27 +19,30 @@
   </div>
 
   <!-- Command hint -->
-  <div class="rounded-lg border bg-white p-4">
-    <div class="text-sm text-slate-600">
-      <div class="mb-1 font-medium text-slate-700">Command (hint):</div>
-      <pre class="font-mono text-[13px] bg-slate-50 rounded border px-3 py-2 overflow-x-auto">
-{% if tool in ["gau"] -%}
-gau --verbose --o outputs/{{ scope }}/urls.txt {{ scope }}
-{%- elif tool in ["waymore"] -%}
-waymore -i {{ scope }} -o -  | tee -a outputs/{{ scope }}/urls.txt
-{%- elif tool in ["build","rebuild"] -%}
-python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --out outputs/{{ scope }}
+  <div class="text-sm font-medium mb-1">Command (hint):</div>
+  <textarea class="input w-full font-mono text-[13px]" rows="2" readonly>
+{% if tool == 'gau' -%}
+    gau --verbose {{ scope }}
+{%- elif tool == 'waymore' -%}
+    waymore -i {{ scope }} -o -
+{%- elif tool == 'subfinder' -%}
+    subfinder -d {{ scope }} -silent -all
+{%- elif tool == 'amass' -%}
+    amass enum -passive -d {{ scope }} -o -
+{%- elif tool == 'build' -%}
+    python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --out outputs/{{ scope }}
+{%- elif tool == 'probe_subdomains' -%}
+    python -m ReconLens.tools.probe_subdomains --scope {{ scope }} --input outputs/{{ scope }}/subdomains.txt --outputs outputs/ --concurrency 20 --timeout 8 --prefer-https --if-head-then-get
+{%- elif tool == 'probe_module' -%}
+        {%-   if module and module|lower == 'subdomains' -%}
+        python -m ReconLens.tools.probe_subdomains --scope {{ scope }} --input outputs/{{ scope }}/subdomains.txt --outputs outputs/ --concurrency 20 --timeout 8 --prefer-https --if-head-then-get
+        {%-   else -%}
+        python -m ReconLens.tools.probe_urls --scope {{ scope }} --module {{ module or 'MODULE_HERE' }} --outputs outputs/
+        {%-   endif -%}
 {%- else -%}
 # unknown tool
 {%- endif %}
-      </pre>
-      {% if urls_txt %}
-      <div class="mt-2 text-xs text-slate-500">
-        Target URL corpus: <code class="bg-slate-50 px-1 rounded">{{ urls_txt }}</code>
-      </div>
-      {% endif %}
-    </div>
-  </div>
+  </textarea>
 
   <!-- Controls -->
   <div class="flex items-center justify-between">
@@ -76,10 +79,15 @@ python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --o
     </div>
   </div>
 
+  <!-- Target corpus info -->
+  <div class="text-xs text-slate-500">
+    Target URL corpus:
+    <span class="font-mono">{{ corpus_hint or urls_txt or '-' }}</span>
+  </div>
+
   <!-- Console -->
   <div id="termBox"
        class="rounded-lg border bg-black text-slate-100 p-3 max-h-[70vh] overflow-auto">
-    <!-- DEFAULT: 80 kolom, wrap -->
     <pre id="out"
          class="font-mono text-[13px] leading-snug whitespace-pre-wrap break-words max-w-[80ch]"></pre>
   </div>
@@ -87,8 +95,9 @@ python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --o
 
 <script>
 (function(){
-  const scope = {{ scope|tojson }};
-  const tool  = {{ tool|tojson }};
+  const scope      = {{ scope|tojson }};
+  const tool       = {{ tool|tojson }};
+  const moduleName = {{ module|tojson }};
 
   const runBtn    = document.getElementById('runBtn');
   const cancelBtn = document.getElementById('cancelBtn');
@@ -102,20 +111,28 @@ python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --o
   let currentJob = null;
 
   function normalizeToolForAPI(t){
-    // alias: 'rebuild' → 'build'
-    if (t === 'rebuild') return 'build';
-    return t;
+    return (t === 'rebuild') ? 'build' : t;
   }
 
+  // Build URL dengan benar: path dulu, baru query (?module, ?job)
   function apiPath(kind, jobId){
     const t = normalizeToolForAPI(tool);
-    if (kind === 'start')
-      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/start`;
-    if (kind === 'stream')
-      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/stream?job=${encodeURIComponent(jobId)}`;
-    if (kind === 'cancel')
-      return `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}/cancel?job=${encodeURIComponent(jobId)}`;
-    return '#';
+
+    // base path tanpa query
+    let path = `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}`;
+    if (kind === 'start')  path += '/start';
+    if (kind === 'stream') path += '/stream';
+    if (kind === 'cancel') path += '/cancel';
+
+    // gunakan URL agar query param rapi
+    const u = new URL(path, window.location.origin);
+    if (t === 'probe_module' && moduleName) {
+      u.searchParams.set('module', moduleName);
+    }
+    if ((kind === 'stream' || kind === 'cancel') && jobId) {
+      u.searchParams.set('job', jobId);
+    }
+    return u.pathname + (u.search ? u.search : '');
   }
 
   function append(text){
