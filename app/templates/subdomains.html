@@ -9,45 +9,41 @@
   {% include "_target_tabs.html" with context %}
 
   {# --- Toolbar atas: search, toggle alive, rows/page & pager --- #}
-  <div class="flex items-start justify-between gap-4">
-    <form
-      class="flex items-center gap-3"
-      hx-get="{{ page_url }}"
-      hx-target="#page"
-      hx-select="#page"
-      hx-swap="outerHTML"
-      hx-push-url="true"
-      hx-trigger="submit, change from:input[name='alive']"
-    >
-      <input
-        type="text"
-        name="q"
-        value="{{ q or '' }}"
-        placeholder="filter (substring)"
-        class="w-72 border rounded px-3 py-2"
-      />
+  <form
+    class="flex items-center gap-3"
+    hx-get="{{ page_url }}"
+    hx-target="#page"
+    hx-select="#page"
+    hx-swap="outerHTML"
+    hx-push-url="true"
+    hx-trigger="submit, change from:input[name='alive']"
+  >
+    <input
+      type="text"
+      name="q"
+      value="{{ q or '' }}"
+      placeholder="filter (substring)"
+      class="w-72 border rounded px-3 py-2"
+    />
 
-      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" name="alive" value="1" {% if alive %}checked{% endif %} />
-        live domain only
-      </label>
+    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" name="alive" value="1" {% if alive %}checked{% endif %} />
+      live domain only
+    </label>
 
-      <!-- reset ke page 1 & pertahankan rows/page -->
-      <input type="hidden" name="page" value="1" />
-      <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <!-- reset ke page 1 & pertahankan rows/page -->
+    <input type="hidden" name="page" value="1" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
 
-      <button type="submit" class="px-4 py-2 rounded bg-slate-900 text-white">
-        Apply
-      </button>
-    </form>
+    <button type="submit" class="px-4 py-2 rounded bg-slate-900 text-white">
+      Apply
+    </button>
 
-    {# Link kecil untuk buka modal collect subdomains #}
-    <button id="collectSubsBtn"
-            type="button"
-            class="text-xs text-blue-600 hover:underline mt-2">
+    <!-- trigger modal collect -->
+    <button id="collectBtn" type="button" class="ml-auto text-xs text-blue-600 hover:underline">
       (re)collect subdomains
     </button>
-  </div>
+  </form>
 
   {# --- Pager top --- #}
   {% include "_pager.html" %}
@@ -69,7 +65,6 @@
       <tbody id="rows">
         {% for host in rows %}
           {% set rec = enrich.get(host) %}
-          {# Bangun URL final: pakai scheme dari enrich kalau ada, default https #}
           {% set final_url = (rec.get('scheme') ~ '://' ~ host) if rec and rec.get('scheme') else ('https://' ~ host) %}
           <tr class="border-t">
             <td class="px-4 py-2 font-mono text-[13px]"><a href="{{ final_url }}" target=_blank>{{ final_url }}</a></td>
@@ -116,63 +111,77 @@
 </div>
 
 {# =========================
-   MODAL: (re)collect subdomains
+   MODAL: Collect subdomains (per-tool buttons)
    ========================= #}
-<div id="collectSubsModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+<div id="collectModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
   <div class="absolute inset-0 bg-black/40"></div>
-  <div class="relative mx-auto mt-20 w-[92%] max-w-xl rounded-xl bg-white shadow-lg border border-slate-200">
+  <div class="relative mx-auto mt-20 w-[92%] max-w-2xl rounded-xl bg-white shadow-lg border border-slate-200">
     <div class="px-5 py-4 border-b flex items-center justify-between">
-      <div class="text-base font-semibold text-slate-800">Collect subdomains</div>
-      <button id="collectSubsClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+      <div class="text-lg font-semibold text-slate-800">Collect subdomains</div>
+      <button id="collectClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
     </div>
 
     <div class="p-5 space-y-4 text-sm">
       <p class="text-slate-600">
-        Pilih sumber untuk mengumpulkan subdomain
-        <span class="font-mono">{{ scope }}</span>:
+        Pilih sumber untuk mengumpulkan subdomain <span class="font-mono">{{ scope }}</span>:
       </p>
 
-      <div class="space-y-2">
-        <label class="flex items-center gap-3 p-3 rounded-lg border">
-          <input type="checkbox" id="opt-subfinder" class="h-4 w-4">
-          <div>
-            <div class="font-medium">Subfinder</div>
-            <div class="text-xs text-slate-500">Cepat, passive sources.</div>
+      {# Subfinder #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Subfinder</div>
+          <div class="text-slate-500 text-xs">Cepat, passive sources.</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.subfinder if last_scans is defined else None) or '—' }}
           </div>
-        </label>
-
-        <label class="flex items-center gap-3 p-3 rounded-lg border">
-          <input type="checkbox" id="opt-amass" class="h-4 w-4">
-          <div>
-            <div class="font-medium">Amass</div>
-            <div class="text-xs text-slate-500">Komprehensif, lebih berat/lama.</div>
-          </div>
-        </label>
-
-        <label class="flex items-center gap-3 p-3 rounded-lg border">
-          <input type="checkbox" id="opt-bruteforce" class="h-4 w-4">
-          <div>
-            <div class="font-medium">Bruteforce</div>
-            <div class="text-xs text-slate-500">Aktif, gunakan wordlist untuk enumerasi.</div>
-          </div>
-        </label>
+        </div>
+        <a href="/targets/{{ scope }}/collect/subfinder" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
       </div>
 
-      <div class="flex items-center gap-2">
-        <button id="runSelected"
-                class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">
-          Run selected
-        </button>
-        <button id="openEach"
-                class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
-          Open tabs (each)
-        </button>
+      {# Amass (passive) #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Amass (passive)</div>
+          <div class="text-slate-500 text-xs">Komprehensif, bisa lebih lambat.</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.amass if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/amass" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
+      </div>
+
+      {# Findomain #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Findomain</div>
+          <div class="text-slate-500 text-xs">Alternatif pasif; sumber berbeda dari subfinder.</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.findomain if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/findomain" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
+      </div>
+
+      {# Bruteforce (placeholder aktif) #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Bruteforce</div>
+          <div class="text-slate-500 text-xs">Aktif, gunakan wordlist untuk enumerasi.</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.bruteforce if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/bruteforce" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-100 text-slate-600 text-sm border">Run</a>
       </div>
 
       <p class="text-xs text-slate-500">
-        Proses berjalan di tab baru; hasil akan digabungkan ke
-        <code class="px-1 rounded bg-slate-100">outputs/{{ scope }}/subdomains.txt</code>
-        dan ditampilkan di tabel ini setelah refresh.
+        Proses berjalan di tab baru; hasil otomatis digabung ke
+        <code class="px-1 rounded bg-slate-100">outputs/{{ scope }}/subdomains.txt</code>.
+        Refresh halaman ini setelah selesai untuk melihat pembaruan.
       </p>
     </div>
   </div>
@@ -180,53 +189,21 @@
 
 <script>
 (function(){
-  const scope = {{ scope|tojson }};
-
-  // --- modal helpers
-  const modal   = document.getElementById('collectSubsModal');
-  const openBtn = document.getElementById('collectSubsBtn');
-  const closeBtn= document.getElementById('collectSubsClose');
+  const modal   = document.getElementById('collectModal');
+  const openBtn = document.getElementById('collectBtn');
+  const closeBtn= document.getElementById('collectClose');
 
   function open(){ modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); }
   function close(){ modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); }
 
   openBtn?.addEventListener('click', open);
   closeBtn?.addEventListener('click', close);
+
   modal?.addEventListener('click', (e)=>{
     if (e.target === modal || (e.target.classList && e.target.classList.contains('bg-black/40'))) close();
   });
   document.addEventListener('keydown', (e)=>{
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
-  });
-
-  // --- actions
-  function selectedTools(){
-    const tools = [];
-    if (document.getElementById('opt-subfinder')?.checked) tools.push('subfinder');
-    if (document.getElementById('opt-amass')?.checked) tools.push('amass');
-    if (document.getElementById('opt-bruteforce')?.checked) tools.push('sub-bruteforce');
-    return tools;
-  }
-
-  // buka tiap tool di tab baru (endpoint asumsi: /targets/<scope>/collect/<tool>)
-  document.getElementById('openEach')?.addEventListener('click', ()=>{
-    const tools = selectedTools();
-    if (tools.length === 0) { alert('Pilih minimal satu tool.'); return; }
-    tools.forEach(t => {
-      window.open(`/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}`, '_blank', 'noopener');
-    });
-    close();
-  });
-
-  // shortcut: kalau user klik "Run selected" tapi backend belum ada aggregator,
-  // kita lakukan perilaku sama seperti openEach (buka semua tab).
-  document.getElementById('runSelected')?.addEventListener('click', ()=>{
-    const tools = selectedTools();
-    if (tools.length === 0) { alert('Pilih minimal satu tool.'); return; }
-    tools.forEach(t => {
-      window.open(`/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}`, '_blank', 'noopener');
-    });
-    close();
   });
 })();
 </script>

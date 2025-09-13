@@ -206,6 +206,12 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
     if tool == "amass":
         # amass enum -passive -d <scope> -o -
         return ["amass", "enum", "-passive", "-d", scope, "-o", "-"]
+    if tool == "findomain":
+        # stdout host/line
+        return ["findomain", "-t", scope, "-q"]
+    if tool == "bruteforce":
+        # placeholder – nanti kita isi wordlist & resolvers
+        return ["bash", "-lc", f"echo bruteforce-not-implemented-for {shlex.quote(scope)}"]
         
     # ---- build modules ----
     if tool == "build":
@@ -329,11 +335,8 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
         await q.put(f"[info] raw → {raw_path}\n")
         await q.put("event: status\ndata: running\n\n")
 
-        # collector tipe host?
-        is_host_collector = tool in ("subfinder", "amass")
-
         assert proc.stdout is not None
-        is_domain_enum = tool in ("amass", "subfinder")
+        is_domain_enum = tool in ("amass", "subfinder", "findomain")
 
         async for raw in proc.stdout:
             line = raw.decode("utf-8", "ignore").rstrip("\n")
@@ -391,7 +394,7 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
             )
             await q.put(f"[summary] merged → {target}\n")
 
-        elif tool in ("subfinder", "amass"):
+        elif tool in ("subfinder", "amass", "findomain"):
             # merge hostnames ke subdomains.txt
             target = out_dir / "subdomains.txt"
 
@@ -493,7 +496,7 @@ def collect_console(
     module: str | None = None,  # <-- ambil dari query (?module=...)
 ):
     # izinkan tool yang kita dukung
-    allowed = {"gau", "waymore", "build", "probe_subdomains", "probe_module", "subfinder", "amass"}
+    allowed = {"gau", "waymore", "build", "probe_subdomains", "probe_module", "subfinder", "amass", "findomain"}
     if tool not in allowed:
         return HTMLResponse("Unknown tool", status_code=404)
 
@@ -522,7 +525,7 @@ async def collect_start(
     request: Request,
     module: str | None = Query(default=None),   # <— ambil ?module=...
 ):
-    if tool not in ("gau", "waymore", "build", "probe_subdomains", "probe_module", "subfinder","amass"):
+    if tool not in ("gau", "waymore", "build", "probe_subdomains", "probe_module", "subfinder","amass","findomain"):
         raise HTTPException(404, "unknown tool")
 
     settings = get_settings(request)

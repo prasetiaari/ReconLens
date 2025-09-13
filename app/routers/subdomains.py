@@ -13,6 +13,37 @@ from fastapi.responses import HTMLResponse
 from app.services.enrich_subdomains import get_probe_map_cached as load_enrich
 router = APIRouter()
 
+def _fmt_ts(ts: float) -> str:
+    try:
+        # ISO pendek sebagai fallback; view bisa render 'timeago' sendiri
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return "—"
+
+def build_last_scans(outputs_dir: Path, scope: str, tools=("subfinder","amass","findomain","bruteforce")) -> dict:
+    """
+    Cari file di outputs/<scope>/raw/<tool>-*.urls, pakai mtime terbaru sebagai last scan.
+    """
+    raw_dir = outputs_dir / scope / "raw"
+    result = {}
+    try:
+        for t in tools:
+            latest_ts = None
+            if raw_dir.exists():
+                for p in raw_dir.glob(f"{t}-*.urls"):
+                    try:
+                        mt = p.stat().st_mtime
+                        if (latest_ts is None) or (mt > latest_ts):
+                            latest_ts = mt
+                    except Exception:
+                        pass
+            result[t] = _fmt_ts(latest_ts) if latest_ts else "—"
+    except Exception:
+        # jangan gagal halaman hanya karena ini
+        for t in tools:
+            result[t] = "—"
+    return result
+    
 def _coerce_ts(value: Any) -> datetime | None:
     """
     Terima epoch int/str, atau ISO string (dengan/ tanpa 'Z'), kembalikan datetime UTC.
@@ -178,7 +209,7 @@ async def subdomains_page(scope: str, request: Request):
     it = _iter_hosts_filtered(sub_file, q, enrich, alive_only=alive)
     rows, total, total_pages, has_prev, has_next = _paginate_iter(it, page, page_size)
     _decorate_last_probe(enrich, rows)
-    
+    last_scans = build_last_scans(get_settings(request).OUTPUTS_DIR, scope)
     ctx = {
         "request": request,
         "scope": scope,
@@ -189,6 +220,7 @@ async def subdomains_page(scope: str, request: Request):
         "alive": alive,
         "rows": rows,
         "total": total,
+        "last_scans": last_scans,
         "total_pages": total_pages,
         "has_prev": has_prev,
         "has_next": has_next,
@@ -217,6 +249,7 @@ async def subdomains_rows(scope: str, request: Request):
     rows, total, total_pages, has_prev, has_next = _paginate_iter(it, page, page_size)
     _decorate_last_probe(enrich, rows)
     
+
     # render halaman penuh juga supaya konsisten dengan hx-select="#page"
     ctx = {
         "request": request,

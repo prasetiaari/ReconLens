@@ -29,6 +29,8 @@
     subfinder -d {{ scope }} -silent -all
 {%- elif tool == 'amass' -%}
     amass enum -passive -d {{ scope }} -o -
+{%- elif tool == 'findomain' -%}
+    findomain -t {{ scope }} -q
 {%- elif tool == 'build' -%}
     python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --out outputs/{{ scope }}
 {%- elif tool == 'probe_subdomains' -%}
