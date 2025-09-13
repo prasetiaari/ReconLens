@@ -1,181 +1,355 @@
-# urls_parser/__main__.py
+# ReconLens/__main__.py  (NEW ENGINE)
 from __future__ import annotations
 import argparse
+import gzip
+import io
+import re
+import sys
+import fnmatch
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from urllib.parse import urlparse, parse_qsl
 
-# Progress bar optional (tqdm). Fallback akan tetap jalan tanpa bar.
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None  # type: ignore
+
 try:
     from tqdm import tqdm  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:
     tqdm = None  # type: ignore
 
-# Config loader
-from .core.config import load_config
 
-# Modul-modul
-from .modules import (
-    subdomains,
-    sensitive_paths,
-    open_redirect,
-    documents,
-    sensitive_params,
-    jwt_candidates,
-    params,
-    robots,
-    emails,
-)
+# =========================
+# Defaults (used if --config not provided)
+# =========================
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "global": {
+        "include_external": False,          # only URLs whose host is in-scope (root or subdomain)
+        "allow_subdomains": [],             # optional glob allow-list, e.g. ["api.*", "dev.*"]
+        "deny_subdomains": [],              # optional glob block-list
+        "dedup_case_insensitive": True,     # lowercase before dedup
+    },
+    "categories": {
+        "auth_login": {
+            "enabled": True,
+            "host_regex": [],
+            "path_regex": [r"/(login|signin|auth|oauth|sso)(/|$)"],
+            "query_keys": ["redirect_uri", "client_id", "return", "next"],
+        },
+        "admin_panel": {
+            "enabled": True,
+            "path_regex": [r"/(admin|administrator|dashboard|cpanel|manage|wp-admin|cms)(/|$)"],
+        },
+        "api": {
+            "enabled": True,
+            "host_startswith": ["api."],
+            "path_regex": [r"^/api/", r"/graphql", r"/v[0-9]+/", r"/rest/"],
+        },
+        "upload": {
+            "enabled": True,
+            "path_regex": [r"/(upload|import|fileupload|media/upload)(/|$)"],
+        },
+        "download_dump": {
+            "enabled": True,
+            "path_regex": [r"/(download|export|backup|dump|database)(/|$)"],
+        },
+        "debug_dev": {
+            "enabled": True,
+            "host_startswith": ["dev.", "test.", "stage.", "staging.", "beta."],
+            "path_regex": [r"/(dev|staging|test|beta|sandbox)(/|$)"],
+        },
+        "docs_swagger": {
+            "enabled": True,
+            "path_regex": [r"/(swagger|redoc|api-docs|openapi)(/|$)"],
+        },
+        "config_backup_source": {
+            "enabled": True,
+            "path_regex": [r"/\.git/", r"config\.(php|ya?ml|json)(\.(bak|old))?$"],
+        },
+        "sensitive_functionality": {
+            "enabled": True,
+            "path_regex": [
+                r"/(reset|forgot)-password",
+                r"/change-(email|password)",
+                r"/(2fa|verify|otp|token)(/|$)",
+            ],
+        },
+        "monitoring": {
+            "enabled": True,
+            "path_regex": [r"/(grafana|prometheus|metrics|zabbix|kibana|jaeger|debug)(/|$)"],
+        },
+        "payments": {
+            "enabled": True,
+            "path_regex": [r"/(checkout|payment|pay|invoice|billing|cart)(/|$)"],
+        },
+        "static_assets": {
+            "enabled": True,
+            "path_regex": [r"^/(js|css|img|images|static|assets)/"],
+            "extensions": [".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2"],
+        },
+        "file_disclosure": {
+            "enabled": True,
+            "extensions": [
+                ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
+                ".zip", ".gz", ".tar", ".rar", ".7z",
+                ".sql", ".sqlite", ".bak", ".log",
+            ],
+        },
+        # NOTE: "other" is implicit; engine will always create it as fallback.
+    },
+}
 
+
+# =========================
+# CLI
+# =========================
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run all passive URL parsers in sequence with optional YAML config overrides."
+        description="Classify URLs into security-focused categories (new engine).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--scope", required=True, help="Root domain, e.g. example.com")
-    p.add_argument("--input", required=True, help="Input file from gau/waymore (.txt or .gz)")
+    p.add_argument("--input", required=True, help="Input URLs file (.txt or .gz)")
     p.add_argument("--out", required=True, help="Output directory for this scope")
-    p.add_argument("--config", default="", help="Path to YAML config to override module defaults")
-
-    # Global scoping
-    p.add_argument("--include-external", action="store_true", help="Include hosts outside the root scope")
-    p.add_argument("--allow-subdomains", default="", help="Comma-separated glob allow list")
-    p.add_argument("--deny-subdomains",  default="", help="Comma-separated glob deny list")
-
-    # Module-specific CLI toggles (tetap ada; config YAML bisa override ini juga jika kamu mau)
-    p.add_argument("--redirect-only-offsite", action="store_true",
-                   help="open_redirect: only keep values that look offsite (http(s)://, //, %2f%2f)")
-
-    p.add_argument("--email-domains", default="",
-                   help="emails: extra allowed email domains (comma-separated) besides common providers + in-scope")
-    p.add_argument("--emails-scan-path", action="store_true",
-                   help="emails: also scan path segments (default off to avoid @2x.png)")
-    p.add_argument("--emails-emit-raw", action="store_true",
-                   help="emails: also write raw emails to emails_found.txt")
-    p.add_argument("--emails-mask", action="store_true",
-                   help="emails: mask raw emails in emails_found.txt")
-
-    p.add_argument("--robots-dir", default="",
-                   help="robots: directory containing <host>.robots.txt bodies to parse Disallow")
-    p.add_argument("--robots-no-disallow", action="store_true",
-                   help="robots: do not write robots_disallow.txt even if robots-dir provided")
-
-    # params module noise control
-    p.add_argument("--params-min-len", type=int, default=1,
-                   help="params: minimum parameter name length (default 1)")
-    p.add_argument("--params-exclude", default="",
-                   help="params: extra excludes (comma-separated), case-insensitive")
-    p.add_argument("--params-keep-case", action="store_true",
-                   help="params: keep original case (default lowercases)")
-
+    p.add_argument("--config", default="", help="YAML config (if provided, FULLY replaces defaults)")
     return p.parse_args()
 
-def _merge_extra_with_config(name: str, extra: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Merge kwargs 'extra' (dari CLI defaults) dengan override dari config YAML untuk modul 'name'.
-    - cfg[name] harus dict → di-update ke extra
-    - nilai di config akan MENGGANTIKAN nilai extra
-    """
-    merged = dict(extra)
-    section = cfg.get(name)
-    if isinstance(section, dict):
-        merged.update(section)
-    return merged
 
-def _print_summary_table(results: List[Tuple[str, int, int]]) -> None:
-    if not results:
-        return
-    name_w = max(len(r[0]) for r in results + [("Module",0,0)])
-    in_w   = max(len(str(r[1])) for r in results + [("",len("Input"),0)])
-    out_w  = max(len(str(r[2])) for r in results + [("",0,len("Written"))])
+# =========================
+# Helpers
+# =========================
+def load_config(path: str) -> Dict[str, Any]:
+    """Load YAML config; if not provided, return DEFAULT_CONFIG. FULL replace semantics."""
+    if not path:
+        return DEFAULT_CONFIG
+    if yaml is None:
+        raise RuntimeError("PyYAML not installed but --config provided")
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data  # FULL replace
 
-    def line(ch="-") -> str:
-        return f"+{ch*(name_w+2)}+{ch*(in_w+2)}+{ch*(out_w+2)}+"
 
-    header = f"| {'Module'.ljust(name_w)} | {'Input'.rjust(in_w)} | {'Written'.rjust(out_w)} |"
+def iter_lines(path: str) -> Iterable[str]:
+    p = Path(path)
+    if p.suffix == ".gz":
+        with gzip.open(p, "rt", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                yield ln.strip()
+    else:
+        with p.open("r", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                yield ln.strip()
 
-    print()
-    print(line("="))
-    print(header)
-    print(line("="))
-    for (n, i, o) in results:
-        print(f"| {n.ljust(name_w)} | {str(i).rjust(in_w)} | {str(o).rjust(out_w)} |")
-    print(line("="))
 
+def in_scope(host: str, scope: str) -> bool:
+    if not host:
+        return False
+    host = host.lower()
+    scope = scope.lower().lstrip(".")
+    return host == scope or host.endswith("." + scope)
+
+
+def glob_ok(host: str, globs: List[str]) -> bool:
+    if not globs:
+        return True
+    return any(fnmatch.fnmatch(host, g) for g in globs)
+
+
+def glob_block(host: str, globs: List[str]) -> bool:
+    if not globs:
+        return False
+    return any(fnmatch.fnmatch(host, g) for g in globs)
+
+
+def get_ext(path: str) -> str:
+    path = path.split("?")[0]
+    idx = path.rfind(".")
+    if idx == -1:
+        return ""
+    return path[idx:].lower()
+
+
+def compile_patterns(lst: Optional[List[str]]) -> List[re.Pattern]:
+    if not lst:
+        return []
+    return [re.compile(x, re.IGNORECASE) for x in lst]
+
+
+# =========================
+# Rule building
+# =========================
+class Rule:
+    __slots__ = ("name", "host_starts", "host_re", "path_re", "qkeys", "exts", "enabled")
+
+    def __init__(
+        self,
+        name: str,
+        host_starts: List[str] | None,
+        host_re: List[re.Pattern] | None,
+        path_re: List[re.Pattern] | None,
+        qkeys: Set[str] | None,
+        exts: Set[str] | None,
+        enabled: bool = True,
+    ):
+        self.name = name
+        self.host_starts = host_starts or []
+        self.host_re = host_re or []
+        self.path_re = path_re or []
+        self.qkeys = qkeys or set()
+        self.exts = exts or set()
+        self.enabled = enabled
+
+    def match(self, host: str, path: str, query_keys: Set[str]) -> bool:
+        if not self.enabled:
+            return False
+
+        if self.host_starts and not any(host.lower().startswith(hs.lower()) for hs in self.host_starts):
+            return False
+
+        if self.host_re and not any(rx.search(host) for rx in self.host_re):
+            return False
+
+        if self.path_re and not any(rx.search(path) for rx in self.path_re):
+            return False
+
+        if self.qkeys and not (self.qkeys & query_keys):
+            return False
+
+        if self.exts:
+            ext = get_ext(path)
+            if ext not in self.exts:
+                return False
+
+        return True
+
+
+def build_rules(cfg: Dict[str, Any]) -> Tuple[Dict[str, Rule], Dict[str, Any]]:
+    cats = cfg.get("categories", {}) or {}
+    rules: Dict[str, Rule] = {}
+    for name, spec in cats.items():
+        if not isinstance(spec, dict):
+            continue
+        enabled = bool(spec.get("enabled", True))
+        host_starts = list(spec.get("host_startswith", []) or [])
+        host_re = compile_patterns(spec.get("host_regex"))
+        path_re = compile_patterns(spec.get("path_regex"))
+        qkeys = set(k.lower() for k in (spec.get("query_keys") or []))
+        exts = set(x.lower() for x in (spec.get("extensions") or []))
+        rules[name] = Rule(
+            name=name,
+            host_starts=host_starts,
+            host_re=host_re,
+            path_re=path_re,
+            qkeys=qkeys,
+            exts=exts,
+            enabled=enabled,
+        )
+    return rules, (cfg.get("global", {}) or {})
+
+
+# =========================
+# Classifier
+# =========================
+def classify_url(url: str, rules: Dict[str, Rule]) -> List[str]:
+    try:
+        p = urlparse(url)
+    except Exception:
+        return []
+    host = (p.netloc or "").lower()
+    path = p.path or "/"
+    qkeys = set(k.lower() for k, _ in parse_qsl(p.query, keep_blank_values=True))
+
+    matched: List[str] = []
+    for name, rule in rules.items():
+        if rule.match(host, path, qkeys):
+            matched.append(name)
+    return matched
+
+
+# =========================
+# Main
+# =========================
 def main() -> None:
     args = parse_args()
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse global lists
-    allow = [s.strip() for s in args.allow_subdomains.split(",") if s.strip()]
-    deny  = [s.strip() for s in args.deny_subdomains.split(",") if s.strip()]
-    extra_email_domains = [s.strip().lower() for s in args.email_domains.split(",") if s.strip()]
-    params_excludes = [s.strip() for s in args.params_exclude.split(",") if s.strip()]
-    robots_dir = args.robots_dir.strip() or None
+    cfg = load_config(args.config)
+    rules, gopt = build_rules(cfg)
 
-    # Load YAML config (boleh kosong)
-    cfg = load_config(args.config) if args.config else {}
+    include_external = bool(gopt.get("include_external", False))
+    allow_globs = list(gopt.get("allow_subdomains") or [])
+    deny_globs = list(gopt.get("deny_subdomains") or [])
+    ci_dedup = bool(gopt.get("dedup_case_insensitive", True))
 
-    # Steps: (name, func, default_extra_kwargs)
-    steps: List[Tuple[str, Any, Dict[str, Any]]] = [
-        ("subdomains", subdomains.run, dict()),
-        ("sensitive_paths", sensitive_paths.run, dict()),
-        ("open_redirect", open_redirect.run, dict(
-            only_offsite_values=args.redirect_only_offsite
-        )),
-        ("documents", documents.run, dict()),
-        ("sensitive_params", sensitive_params.run, dict()),
-        ("jwt_candidates", jwt_candidates.run, dict()),
-        ("params", params.run, dict(
-            min_len=args.params_min_len,
-            exclude=list({*params_excludes}) or None,
-            lowercase=not args.params_keep_case
-        )),
-        ("robots", robots.run, dict(
-            robots_dir=robots_dir,
-            write_disallow=not args.robots_no_disallow
-        )),
-        ("emails", emails.run, dict(
-            email_domains=extra_email_domains or None,
-            scan_path=args.emails_scan_path,
-            emit_raw_emails=args.emails_emit_raw,
-            mask_emails=args.emails_mask
-        )),
-    ]
+    # buffers per category (+ fallback 'other')
+    buffers: Dict[str, Set[str]] = {name: set() for name in rules.keys() if rules[name].enabled}
+    buffers["other"] = set()
 
-    results: List[Tuple[str, int, int]] = []
+    total_in = 0
 
-    iterable = steps
+    itr: Iterable[str] = iter_lines(args.input)
     if tqdm:
-        iterable = tqdm(steps, desc="Modules", unit="mod")
+        itr = tqdm(itr, desc="Classifying", unit="url")
 
-    for item in iterable:
-        name, func, extra_defaults = item if tqdm else item
-        extra = _merge_extra_with_config(name, extra_defaults, cfg)
+    for raw in itr:
+        if not raw:
+            continue
+        total_in += 1
+        url = raw.strip()
 
+        # quick parse for scope & host-based rules
         try:
-            total_in, total_out = func(
-                input_path=args.input,
-                output_dir=args.out,
-                scope=args.scope,
-                include_external=args.include_external,
-                allow_subdomains=allow or None,
-                deny_subdomains=deny or None,
-                **extra
-            )
-            results.append((name, total_in, total_out))
-            status = "✅" if total_out > 0 else "⚠️"
-            msg = f"[{name}] {status} read={total_in} -> written={total_out}"
-        except Exception as e:
-            results.append((name, 0, 0))
-            msg = f"[{name}] ❌ ERROR: {e}"
+            p = urlparse(url)
+            host = (p.netloc or "").lower()
+        except Exception:
+            continue
 
-        if tqdm:
-            iterable.write(msg)
+        # scope filter
+        if not include_external and not in_scope(host, args.scope):
+            continue
+        if deny_globs and glob_block(host, deny_globs):
+            continue
+        if allow_globs and not glob_ok(host, allow_globs):
+            if not any(fnmatch.fnmatch(host, g) for g in allow_globs) and not in_scope(host, args.scope):
+                continue
+
+        cats = classify_url(url, rules)
+        val = url.lower() if ci_dedup else url
+
+        if cats:
+            for c in cats:
+                if c in buffers:
+                    buffers[c].add(val)
         else:
-            print(msg)
+            buffers["other"].add(val)
 
-    _print_summary_table(results)
-    print(f"Done. Outputs in: {out_dir.resolve()}")
+    # write outputs
+    results: List[Tuple[str, int]] = []
+    for cat, items in buffers.items():
+        out_path = out_dir / f"{cat}.txt"
+        data = sorted(items)
+        with out_path.open("w", encoding="utf-8") as f:
+            f.write("\n".join(data) + ("\n" if data else ""))
+        results.append((cat, len(data)))
+
+    # summary table
+    name_w = max([len("Category")] + [len(n) for n, _ in results]) if results else 8
+    cnt_w = max([len("Written")] + [len(str(c)) for _, c in results]) if results else 7
+    line = f"+{'-'*(name_w+2)}+{'-'*(cnt_w+2)}+"
+
+    print()
+    print(line)
+    print(f"| {'Category'.ljust(name_w)} | {'Written'.rjust(cnt_w)} |")
+    print(line)
+    for n, c in sorted(results):
+        print(f"| {n.ljust(name_w)} | {str(c).rjust(cnt_w)} |")
+    print(line)
+    print(f"Processed: {total_in} URLs")
+    print(f"Outputs in: {out_dir.resolve()}")
+
 
 if __name__ == "__main__":
     main()

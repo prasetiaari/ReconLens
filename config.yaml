@@ -1,0 +1,52 @@
+# config.yaml (baru)
+global:
+  include_external: false          # bawa URL di luar *.scope? (default false)
+  allow_subdomains: []             # glob opsional: ["api.*", "*.internal.*"]
+  deny_subdomains: []              # glob opsional
+  dedup_case_insensitive: true
+
+categories:
+  auth_login:
+    enabled: true
+    host_regex: []                 # contoh: ["^auth\\."]
+    path_regex: ["/(login|signin|auth|oauth|sso)(/|$)"]
+    query_keys: ["redirect_uri", "client_id", "return", "next"]
+  admin_panel:
+    enabled: true
+    path_regex: ["/(admin|administrator|dashboard|cpanel|manage|wp-admin|cms)(/|$)"]
+  api:
+    enabled: true
+    host_startswith: ["api."]
+    path_regex: ["^/api/", "/graphql", "/v[0-9]+/", "/rest/"]
+  upload:
+    enabled: true
+    path_regex: ["/(upload|import|fileupload|media/upload)(/|$)"]
+  download_dump:
+    enabled: true
+    path_regex: ["/(download|export|backup|dump|database)(/|$)"]
+  debug_dev:
+    enabled: true
+    host_startswith: ["dev.", "test.", "stage.", "staging.", "beta."]
+    path_regex: ["/(dev|staging|test|beta|sandbox)(/|$)"]
+  docs_swagger:
+    enabled: true
+    path_regex: ["/(swagger|redoc|api-docs|openapi)(/|$)"]
+  config_backup_source:
+    enabled: true
+    path_regex: ["/\\.git/", "config\\.(php|ya?ml|json)(\\.(bak|old))?$"]
+  sensitive_functionality:
+    enabled: true
+    path_regex: ["/(reset|forgot)-password", "/change-(email|password)", "/(2fa|verify|otp|token)(/|$)"]
+  monitoring:
+    enabled: true
+    path_regex: ["/(grafana|prometheus|metrics|zabbix|kibana|jaeger|debug)(/|$)"]
+  payments:
+    enabled: true
+    path_regex: ["/(checkout|payment|pay|invoice|billing|cart)(/|$)"]
+  static_assets:
+    enabled: true
+    path_regex: ["^/(js|css|img|images|static|assets)/"]
+    extensions: [".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2"]
+  file_disclosure:
+    enabled: true
+    extensions: [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".zip", ".gz", ".tar", ".rar", ".7z", ".sql", ".sqlite", ".bak", ".log"]
