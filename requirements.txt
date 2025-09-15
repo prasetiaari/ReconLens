@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+jinja2
+httpx[http2]
+tqdm
+python-dateutil
+python-multipart
