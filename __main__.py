@@ -1,10 +1,8 @@
-# ReconLens/__main__.py  (NEW ENGINE)
+# ReconLens/__main__.py  (NEW ENGINE - rules-based + subdomain merge)
 from __future__ import annotations
 import argparse
 import gzip
-import io
 import re
-import sys
 import fnmatch
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -288,6 +286,9 @@ def main() -> None:
     buffers: Dict[str, Set[str]] = {name: set() for name in rules.keys() if rules[name].enabled}
     buffers["other"] = set()
 
+    # kumpulkan subdomain unik dari seluruh URL (in-scope)
+    subdomains_set: Set[str] = set()
+
     total_in = 0
 
     itr: Iterable[str] = iter_lines(args.input)
@@ -300,10 +301,10 @@ def main() -> None:
         total_in += 1
         url = raw.strip()
 
-        # quick parse for scope & host-based rules
+        # parse untuk host
         try:
             p = urlparse(url)
-            host = (p.netloc or "").lower()
+            host = (p.netloc or "").split("@")[-1].split(":")[0].lower()  # buang auth & port
         except Exception:
             continue
 
@@ -316,6 +317,11 @@ def main() -> None:
             if not any(fnmatch.fnmatch(host, g) for g in allow_globs) and not in_scope(host, args.scope):
                 continue
 
+        # kumpulkan subdomain in-scope
+        if in_scope(host, args.scope):
+            subdomains_set.add(host)
+
+        # klasifikasi kategori
         cats = classify_url(url, rules)
         val = url.lower() if ci_dedup else url
 
@@ -326,7 +332,7 @@ def main() -> None:
         else:
             buffers["other"].add(val)
 
-    # write outputs
+    # ---- write category outputs ----
     results: List[Tuple[str, int]] = []
     for cat, items in buffers.items():
         out_path = out_dir / f"{cat}.txt"
@@ -335,7 +341,24 @@ def main() -> None:
             f.write("\n".join(data) + ("\n" if data else ""))
         results.append((cat, len(data)))
 
-    # summary table
+    # ---- merge & write subdomains.txt ----
+    subs_path = out_dir / "subdomains.txt"
+    existing: Set[str] = set()
+    if subs_path.exists():
+        try:
+            with subs_path.open("r", encoding="utf-8", errors="ignore") as f:
+                for ln in f:
+                    h = ln.strip().lower()
+                    if h:
+                        existing.add(h)
+        except Exception:
+            pass
+    merged_subs = sorted(existing | subdomains_set)
+    with subs_path.open("w", encoding="utf-8") as f:
+        f.write("\n".join(merged_subs) + ("\n" if merged_subs else ""))
+    results.append(("subdomains", len(merged_subs)))
+
+    # ---- summary table ----
     name_w = max([len("Category")] + [len(n) for n, _ in results]) if results else 8
     cnt_w = max([len("Written")] + [len(str(c)) for _, c in results]) if results else 7
     line = f"+{'-'*(name_w+2)}+{'-'*(cnt_w+2)}+"

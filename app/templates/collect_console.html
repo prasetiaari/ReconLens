@@ -11,6 +11,10 @@
         <span class="font-mono text-slate-700">{{ tool }}</span>
         <span class="text-slate-400">·</span>
         <span class="font-mono">{{ scope }}</span>
+        {% if tool == 'dirsearch' and host %}
+          <span class="text-slate-400">·</span>
+          <span class="font-mono text-slate-500">{{ host }}</span>
+        {% endif %}
       </h1>
     </div>
     <div class="text-sm">
@@ -20,7 +24,7 @@
 
   <!-- Command hint -->
   <div class="text-sm font-medium mb-1">Command (hint):</div>
-  <textarea class="input w-full font-mono text-[13px]" rows="2" readonly>
+  <textarea class="input w-full font-mono text-[13px]" rows="3" readonly>
 {% if tool == 'gau' -%}
     gau --verbose {{ scope }}
 {%- elif tool == 'waymore' -%}
@@ -37,14 +41,28 @@
     python -m ReconLens.tools.probe_subdomains --scope {{ scope }} --input outputs/{{ scope }}/subdomains.txt --outputs outputs/ --concurrency 20 --timeout 8 --prefer-https --if-head-then-get
 {%- elif tool == 'probe_module' -%}
         {%-   if module and module|lower == 'subdomains' -%}
-        python -m ReconLens.tools.probe_subdomains --scope {{ scope }} --input outputs/{{ scope }}/subdomains.txt --outputs outputs/ --concurrency 20 --timeout 8 --prefer-https --if-head-then-get
+    python -m ReconLens.tools.probe_subdomains --scope {{ scope }} --input outputs/{{ scope }}/subdomains.txt --outputs outputs/ --concurrency 20 --timeout 8 --prefer-https --if-head-then-get
         {%-   else -%}
-        python -m ReconLens.tools.probe_urls --scope {{ scope }} --module {{ module or 'MODULE_HERE' }} --outputs outputs/
+    python -m ReconLens.tools.probe_urls --scope {{ scope }} --module {{ module or 'MODULE_HERE' }} --outputs outputs/
         {%-   endif -%}
+{%- elif tool == 'dirsearch' -%}
+    # Host target diperlukan (buka konsol dengan ?host=sub.example.com)
+    dirsearch -u {{ host or 'https://sub.example.com' }} -E -t 20 -x 404,403,400
 {%- else -%}
 # unknown tool
 {%- endif %}
   </textarea>
+
+  {% if tool == 'dirsearch' %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 p-3 text-sm">
+      <div class="font-medium mb-1">Dirsearch notes</div>
+      <ul class="list-disc ml-5 space-y-1">
+        <li>Jalankan konsol ini dari halaman Subdomains → pilih host → <em>Web CLI</em>, atau tambahkan query <code>?host=&lt;subdomain&gt;</code>.</li>
+        <li>Hasil akan disimpan di <code>outputs/{{ scope }}/dirsearch/&lt;host&gt;/</code> dan digabung ke <code>found.txt</code>.</li>
+        <li>“Last scan (dirsearch)” per-host akan diperbarui setelah selesai.</li>
+      </ul>
+    </div>
+  {% endif %}
 
   <!-- Controls -->
   <div class="flex items-center justify-between">
@@ -85,6 +103,10 @@
   <div class="text-xs text-slate-500">
     Target URL corpus:
     <span class="font-mono">{{ corpus_hint or urls_txt or '-' }}</span>
+    {% if tool == 'dirsearch' %}
+      <span class="mx-2 text-slate-300">|</span>
+      Host: <span class="font-mono">{{ host or '-' }}</span>
+    {% endif %}
   </div>
 
   <!-- Console -->
@@ -100,12 +122,12 @@
   const scope      = {{ scope|tojson }};
   const tool       = {{ tool|tojson }};
   const moduleName = {{ module|tojson }};
+  const hostParam  = {{ (host or "")|tojson }};
 
   const runBtn    = document.getElementById('runBtn');
   const cancelBtn = document.getElementById('cancelBtn');
   const outEl     = document.getElementById('out');
   const boxEl     = document.getElementById('termBox');
-
   const btnWrap   = document.getElementById('modeWrap');
   const btnScroll = document.getElementById('modeScroll');
 
@@ -116,20 +138,19 @@
     return (t === 'rebuild') ? 'build' : t;
   }
 
-  // Build URL dengan benar: path dulu, baru query (?module, ?job)
   function apiPath(kind, jobId){
     const t = normalizeToolForAPI(tool);
-
-    // base path tanpa query
     let path = `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(t)}`;
     if (kind === 'start')  path += '/start';
     if (kind === 'stream') path += '/stream';
     if (kind === 'cancel') path += '/cancel';
 
-    // gunakan URL agar query param rapi
     const u = new URL(path, window.location.origin);
     if (t === 'probe_module' && moduleName) {
       u.searchParams.set('module', moduleName);
+    }
+    if (t === 'dirsearch' && hostParam) {
+      u.searchParams.set('host', hostParam);
     }
     if ((kind === 'stream' || kind === 'cancel') && jobId) {
       u.searchParams.set('job', jobId);
@@ -153,16 +174,24 @@
     boxEl.classList.remove('overflow-x-auto');
     boxEl.classList.add('overflow-auto');
   }
-
   function setScroll(){
     outEl.classList.add('whitespace-pre','max-w-none');
     outEl.classList.remove('whitespace-pre-wrap','break-words','max-w-[80ch]');
     boxEl.classList.add('overflow-x-auto');
   }
-
   btnWrap?.addEventListener('click', setWrap);
   btnScroll?.addEventListener('click', setScroll);
-  setWrap(); // default
+  setWrap();
+
+  // Disable run if dirsearch & no host
+  function enforceDirsearchHost(){
+    if (tool === 'dirsearch') {
+      const ok = !!hostParam;
+      runBtn.disabled = !ok;
+      runBtn.title = ok ? "" : "Host is required (?host=sub.example.com)";
+    }
+  }
+  enforceDirsearchHost();
 
   async function startJob(){
     if (es) { try { es.close(); } catch(_){} es = null; }

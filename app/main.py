@@ -11,14 +11,16 @@ from dateutil import parser as dtparser
 from app.config import Settings
 
 # Routers
+from app.routers import graphs as graphs_router
+from app.routers.graphs.pages_index import router as graphs_pages_index_router
+
 from app.routers import home as home_router
 from app.routers import targets_api as targets_api_router
 from app.routers import targets as targets_router
 #from app.routers import sensitive_paths as sensitive_paths_router
 from app.routers import subdomains as subdomains_router
 from app.routers import graphs_subdomains as graphs_subdomains_router
-from app.routers import graphs as graphs_router
-from app.routers.graphs.pages_index import router as graphs_pages_index_router
+
 from app.routers.graphs.page_ip_clusters import router as graphs_pages_ip_clusters_router
 from app.routers.graphs.api_subdomains import router as graphs_api_subdomains_router
 from app.routers.graphs import api_router as graphs_api_router, pages_router as graphs_pages_router
@@ -50,6 +52,8 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
 
     # Routers (tanpa duplikat)
+    app.include_router(graphs_pages_index_router)
+    
     app.include_router(home_router.router)
     app.include_router(targets_router.router)
     app.include_router(subdomains_router.router)
@@ -64,7 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(overview_status_codes_router)
 
     app.include_router(graphs_subdomains_router.router)
-    app.include_router(graphs_pages_index_router)
+    
     app.include_router(graphs_pages_ip_clusters_router)
     app.include_router(graphs_api_subdomains_router)
     app.include_router(graphs_api_router)

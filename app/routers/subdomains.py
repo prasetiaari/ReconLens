@@ -1,25 +1,112 @@
 from __future__ import annotations
 import math
 from pathlib import Path
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from app.core.settings import get_settings
 from app.core.templates import get_templates
 from app.core.fs import iter_lines
 from datetime import datetime, timezone
 from typing import Any
-from fastapi.responses import HTMLResponse
-
+from fastapi.responses import HTMLResponse, Response
+import json
 
 from app.services.enrich_subdomains import get_probe_map_cached as load_enrich
 router = APIRouter()
 
+def _decorate_enrich_for_hosts(enrich: dict, hosts: list[str]) -> None:
+    def _fmt_last_probe(val):
+        if not val: return "-"
+        try:
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(int(val), tz=timezone.utc)
+            else:
+                dt = datetime.fromisoformat(str(val))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(val)
+
+    def _fmt_kb(n):
+        try:
+            if n is None: return None, "-"
+            kb = float(n) / 1024.0
+            return kb, f"{kb:.1f} KB"
+        except Exception:
+            return None, "-"
+
+    for host in hosts:
+        rec = enrich.get(host)
+        if not rec:
+            continue
+        rec["last_probe_fmt"] = _fmt_last_probe(rec.get("last_probe"))
+        kb_val, kb_str = _fmt_kb(rec.get("size"))
+        rec["size_kb"]  = kb_val
+        rec["size_fmt"] = kb_str
+
+
+def _host_in_scope(host: str, scope: str) -> bool:
+    host = (host or "").lower()
+    scope = (scope or "").lower()
+    return host.endswith("." + scope) or host == scope
+    
 def _fmt_ts(ts: float) -> str:
     try:
         # ISO pendek sebagai fallback; view bisa render 'timeago' sendiri
         return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return "—"
-
+def _fmt_iso_short(val: str | None) -> str:
+    """
+    Terima ISO string (dengan / tanpa 'Z' / offset), kembalikan 'YYYY-MM-DD HH:MM'.
+    """
+    if not val:
+        return "-"
+    try:
+        s = str(val)
+        if s.endswith("Z"):
+            s = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # tampilkan singkat; kalau mau localize tinggal ganti di sini
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return "-"
+        
+def load_dirsearch_last(outputs_dir: Path, scope: str) -> dict[str, str]:
+    """
+    Baca outputs/<scope>/__cache/dirsearch_last.json -> {host: ISO8601 string}
+    """
+    p = outputs_dir / scope / "__cache" / "dirsearch_last.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+def load_dirsearch_counts(outputs_dir: Path, scope: str) -> dict[str, int]:
+    """
+    Hitung jumlah baris (URL) hasil dirsearch per host:
+    outputs/<scope>/dirsearch/<host>/found.txt -> {host: lines}
+    """
+    base = outputs_dir / scope / "dirsearch"
+    out: dict[str, int] = {}
+    if not base.exists():
+        return out
+    for d in base.iterdir():
+        if not d.is_dir():
+            continue
+        host = d.name
+        f = d / "found.txt"
+        if f.exists():
+            try:
+                with f.open("r", encoding="utf-8", errors="ignore") as fh:
+                    out[host] = sum(1 for _ in fh)
+            except Exception:
+                out[host] = 0
+    return out
+    
 def build_last_scans(outputs_dir: Path, scope: str, tools=("subfinder","amass","findomain","bruteforce")) -> dict:
     """
     Cari file di outputs/<scope>/raw/<tool>-*.urls, pakai mtime terbaru sebagai last scan.
@@ -192,24 +279,59 @@ async def subdomains_ip_clusters(scope: str, request: Request):
     
 @router.get("/targets/{scope}/subdomains")
 async def subdomains_page(scope: str, request: Request):
-    settings = get_settings(request)
+    settings  = get_settings(request)
     templates = get_templates(request)
 
-    q = request.query_params.get("q") or ""
-    page = int(request.query_params.get("page") or 1)
+    q         = (request.query_params.get("q") or "").strip()
+    page      = int(request.query_params.get("page") or 1)
     page_size = int(request.query_params.get("page_size") or 100)
-    alive = _alive_flag(request)
+    alive     = _alive_flag(request)
 
     outputs_dir = Path(settings.OUTPUTS_DIR)
-    page_url = f"/targets/{scope}/subdomains"
+    page_url    = f"/targets/{scope}/subdomains"
 
-    sub_file = _resolve_subdomains_file(outputs_dir, scope, settings.MODULES)
-    enrich = load_enrich(outputs_dir, scope) or {}
+    # file subdomain hasil engine baru: outputs/<scope>/subdomains.txt
+    sub_file = outputs_dir / scope / "subdomains.txt"
+    enrich   = load_enrich(outputs_dir, scope) or {}
 
-    it = _iter_hosts_filtered(sub_file, q, enrich, alive_only=alive)
-    rows, total, total_pages, has_prev, has_next = _paginate_iter(it, page, page_size)
-    _decorate_last_probe(enrich, rows)
-    last_scans = build_last_scans(get_settings(request).OUTPUTS_DIR, scope)
+    # NEW: dirsearch last map (formatted)
+    dir_last_raw = load_dirsearch_last(outputs_dir, scope)
+    dir_last = {h: _fmt_iso_short(ts) for h, ts in dir_last_raw.items()}
+    dir_counts = load_dirsearch_counts(outputs_dir, scope)
+    
+    hosts: list[str] = []
+    if sub_file.exists():
+        with sub_file.open("r", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                h = ln.strip()
+                if not h or h.startswith("#"):
+                    continue
+                hosts.append(h)
+
+    # filter q
+    if q:
+        ql = q.lower()
+        hosts = [h for h in hosts if ql in h.lower()]
+
+    # filter alive (pakai enrich)
+    if alive:
+        hosts = [h for h in hosts if (enrich.get(h) or {}).get("alive")]
+
+    total = len(hosts)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end   = start + page_size
+    rows  = hosts[start:end]               # <<-- penting: list[str], bukan dict
+
+    # opsional: debug ke console
+    #print(f"[debug] subdomains_page: file={sub_file} total_hosts={total} page={page}/{total_pages}")
+    _decorate_enrich_for_hosts(enrich, rows)
+    last_scans = build_last_scans(settings.OUTPUTS_DIR, scope)
+    from .targets import _gather_stats  # import di dalam fungsi
+    stats_pack = _gather_stats(scope)
+    stats = stats_pack["stats"]
+    stats_map = {row["module"]: row for row in stats}
     ctx = {
         "request": request,
         "scope": scope,
@@ -222,35 +344,85 @@ async def subdomains_page(scope: str, request: Request):
         "total": total,
         "last_scans": last_scans,
         "total_pages": total_pages,
-        "has_prev": has_prev,
-        "has_next": has_next,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
         "enrich": enrich,
+        "stats": stats,
+        "stats_map": stats_map,
+        "module_name": "subdomains",
+        "dirsearch_last": dir_last,
+        "dirsearch_counts": dir_counts,
     }
     return templates.TemplateResponse("subdomains.html", ctx)
 
 # OPTIONAL: kalau kamu masih butuh endpoint rows-only
-@router.get("/targets/{scope}/subdomains/rows")
 async def subdomains_rows(scope: str, request: Request):
-    settings = get_settings(request)
+    settings  = get_settings(request)
     templates = get_templates(request)
 
-    q = request.query_params.get("q") or ""
-    page = int(request.query_params.get("page") or 1)
+    q         = request.query_params.get("q") or ""
+    page      = int(request.query_params.get("page") or 1)
     page_size = int(request.query_params.get("page_size") or 100)
-    alive = _alive_flag(request)
+    alive     = _alive_flag(request)
 
     outputs_dir = Path(settings.OUTPUTS_DIR)
-    page_url = f"/targets/{scope}/subdomains"
+    page_url    = f"/targets/{scope}/subdomains"
 
     sub_file = _resolve_subdomains_file(outputs_dir, scope, settings.MODULES)
-    enrich = load_enrich(outputs_dir, scope) or {}
-
+    enrich   = load_enrich(outputs_dir, scope) or {}
+    
+    # NEW
+    dir_last_raw = load_dirsearch_last(outputs_dir, scope)
+    dir_last = {h: _fmt_local_short(ts) for h, ts in dir_last_raw.items()}
+    dir_counts = load_dirsearch_counts(outputs_dir, scope)
+    
     it = _iter_hosts_filtered(sub_file, q, enrich, alive_only=alive)
     rows, total, total_pages, has_prev, has_next = _paginate_iter(it, page, page_size)
-    _decorate_last_probe(enrich, rows)
-    
 
-    # render halaman penuh juga supaya konsisten dengan hx-select="#page"
+    # ---- inject dekorasi ke setiap record enrich yang dipakai di tabel ----
+    from datetime import datetime, timezone
+
+    def _fmt_last_probe(val):
+        if not val:
+            return "-"
+        try:
+            # dukung epoch int/float atau ISO string
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(int(val), tz=timezone.utc)
+            else:
+                dt = datetime.fromisoformat(str(val))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            # samakan gaya dengan modul lain (YYYY-MM-DD HH:MM:SS)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(val)
+
+    # hiasan: size → KB (angka dan string) biar bisa dipakai bebas di template
+    def _fmt_kb(n):
+        try:
+            if n is None:
+                return None, "-"
+            kb = float(n) / 1024.0
+            return kb, f"{kb:.1f} KB"
+        except Exception:
+            return None, "-"
+
+    # hanya dekorasi host yang tampil di halaman (hemat)
+    for host in rows:
+        rec = enrich.get(host)
+        if not rec:
+            continue
+        # last_probe yang sudah diformat
+        rec["last_probe_fmt"] = _fmt_last_probe(rec.get("last_probe"))
+        # size yang sudah diubah ke KB
+        kb_val, kb_str = _fmt_kb(rec.get("size"))
+        rec["size_kb"]  = kb_val     # angka (mis. 6.0)
+        rec["size_fmt"] = kb_str     # string (mis. "6.0 KB")
+
+    # (opsional) tetap panggil util existing kalau kamu masih pakai di tempat lain
+    # _decorate_last_probe(enrich, rows)
+
     ctx = {
         "request": request,
         "scope": scope,
@@ -259,11 +431,80 @@ async def subdomains_rows(scope: str, request: Request):
         "page": page,
         "page_size": page_size,
         "alive": alive,
-        "rows": rows,
+        "rows": rows,                     # list of hosts
         "total": total,
         "total_pages": total_pages,
         "has_prev": has_prev,
         "has_next": has_next,
-        "enrich": enrich,
+        "enrich": enrich,                 # sekarang tiap rec punya last_probe_fmt & size_fmt
+        "dirsearch_last": dir_last,
+        "dirsearch_counts": dir_counts,
     }
     return templates.TemplateResponse("subdomains.html", ctx)
+
+@router.get("/targets/{scope}/dirsearch/{host}", response_class=HTMLResponse)
+async def dirsearch_view(scope: str, host: str, request: Request):
+    settings  = get_settings(request)
+    templates = get_templates(request)
+
+    if ("/" in host) or (".." in host) or not _host_in_scope(host, scope):
+        raise HTTPException(400, "invalid host")
+
+    base   = Path(settings.OUTPUTS_DIR) / scope / "dirsearch" / host
+    fpath  = base / "found.txt"
+    if not fpath.exists():
+        raise HTTPException(404, "no dirsearch result for this host")
+
+    q         = (request.query_params.get("q") or "").strip()
+    page      = int(request.query_params.get("page") or 1)
+    page_size = int(request.query_params.get("page_size") or 50)
+    page_url  = f"/targets/{scope}/dirsearch/{host}"
+
+    # load & filter
+    rows_all: list[str] = []
+    with fpath.open("r", encoding="utf-8", errors="ignore") as f:
+        for ln in f:
+            s = ln.strip()
+            if not s:
+                continue
+            if q and q.lower() not in s.lower():
+                continue
+            rows_all.append(s)
+
+    total       = len(rows_all)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages: page = total_pages
+    start, end = (page - 1) * page_size, (page - 1) * page_size + page_size
+    rows = rows_all[start:end]
+
+    # Reuse module_generic.html
+    return templates.TemplateResponse("module_generic.html", {
+        "request": request,
+        "scope": scope,
+        "module": f"dirsearch:{host}",
+        "rows": rows,
+        "q": q,
+        "page": page,
+        "page_size": page_size,
+        "limit": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "page_url": page_url,
+    })
+
+@router.get("/targets/{scope}/dirsearch/{host}/download")
+async def dirsearch_download(scope: str, host: str, request: Request):
+    settings = get_settings(request)
+    if ("/" in host) or (".." in host) or not _host_in_scope(host, scope):
+        raise HTTPException(400, "invalid host")
+    fpath = Path(settings.OUTPUTS_DIR) / scope / "dirsearch" / host / "found.txt"
+    if not fpath.exists():
+        raise HTTPException(404, "file not found")
+    return Response(
+        content=fpath.read_bytes(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{host}-dirsearch.txt"'},
+    )

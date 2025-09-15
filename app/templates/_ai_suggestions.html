@@ -1,0 +1,195 @@
+{# templates/_ai_suggestions.html #}
+{% set has_ai = suggestions is defined and (suggestions|length) > 0 %}
+<div class="rounded-xl bg-white border border-slate-200 shadow">
+  <div class="flex items-center justify-between px-4 sm:px-5 py-3 border-b">
+    <div class="flex items-center gap-3">
+      <div class="text-sm uppercase tracking-wide text-slate-500">AI suggestions</div>
+      {% if ai_meta and ai_meta.last_run %}
+        <div class="text-xs text-slate-400">
+          last run: <span class="font-medium text-slate-600">{{ ai_meta.last_run }}</span>
+          {% if ai_meta.total %} · {{ ai_meta.total }} candidates{% endif %}
+        </div>
+      {% else %}
+        <div class="text-xs text-slate-400">no runs yet</div>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="aiRunBtn"
+              class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs">
+        Run AI classification
+      </button>
+      <a href="/targets/{{ scope }}#ai"
+         class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs">
+        Refresh
+      </a>
+    </div>
+  </div>
+
+  <div class="px-4 sm:px-5 py-4">
+    <!-- Toolbar -->
+    <form class="flex flex-wrap items-center gap-3 text-sm mb-4"
+          hx-get="/targets/{{ scope }}/ai/suggestions"
+          hx-target="#aiSuggestions"
+          hx-select="#aiSuggestions"
+          hx-swap="outerHTML"
+          hx-push-url="false">
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="filter URLs / reasons"
+             class="w-72 border rounded px-3 py-2" />
+      <label class="inline-flex items-center gap-2">
+        <span class="text-slate-500">module</span>
+        <select name="module" class="border rounded px-2 py-1.5">
+          <option value="">all</option>
+          {% for m in ['subdomains','open_redirect','documents','sensitive_paths','params','params_urls','sensitive_params','jwt_candidates','robots'] %}
+            <option value="{{ m }}" {% if module == m %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="inline-flex items-center gap-2">
+        <span class="text-slate-500">min score</span>
+        <input type="range" name="min" min="0" max="100" value="{{ (min*100)|int if min is defined else 70 }}"
+               class="w-40">
+        <span class="tabular-nums text-slate-700">{{ (min*100)|int if min is defined else 70 }}%</span>
+      </label>
+      <input type="hidden" name="page" value="{{ page or 1 }}">
+      <button class="px-3 py-2 rounded bg-slate-900 text-white">Apply</button>
+    </form>
+
+    <!-- Suggestions list -->
+    <div id="aiSuggestions" class="space-y-3">
+      {% if not has_ai %}
+        <div class="p-4 rounded-lg border border-dashed text-slate-600 text-sm">
+          Belum ada saran. Klik <em>Run AI classification</em> untuk membuat kandidat.
+        </div>
+      {% else %}
+        {% for s in suggestions %}
+          {# s: {url, module, score (0..1), reason, source} #}
+          <div class="p-3 rounded-lg border hover:shadow-sm transition">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+              <div class="min-w-0">
+                <div class="font-mono text-[13px] truncate">
+                  <a href="{{ s.url }}" target="_blank" class="text-blue-700 underline">{{ s.url }}</a>
+                </div>
+                <div class="mt-1 text-xs text-slate-500 line-clamp-2">
+                  {{ s.reason or '—' }}
+                </div>
+                <div class="mt-2 flex items-center gap-2 text-xs">
+                  <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">{{ s.module }}</span>
+                  <span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">score {{ ((s.score or 0)*100)|round(0)|int }}%</span>
+                  {% if s.source %}<span class="px-1.5 py-0.5 rounded bg-slate-50 text-slate-500">{{ s.source }}</span>{% endif %}
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  class="px-2.5 py-1.5 rounded bg-emerald-600 text-white text-xs"
+                  hx-post="/targets/{{ scope }}/ai/accept"
+                  hx-vals='{"url":"{{ s.url|tojson|safe }}","module":"{{ s.module }}"}'
+                  hx-target="closest div"
+                  hx-swap="outerHTML">
+                  Accept
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded bg-rose-100 text-rose-700 text-xs"
+                  hx-post="/targets/{{ scope }}/ai/reject"
+                  hx-vals='{"url":"{{ s.url|tojson|safe }}"}'
+                  hx-target="closest div"
+                  hx-swap="outerHTML">
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+
+        {# Pager sederhana (opsional) #}
+        {% if total_pages and total_pages > 1 %}
+          <div class="flex items-center justify-center gap-2 pt-2">
+            {% for p in range(1, total_pages+1) %}
+              <a
+                hx-get="/targets/{{ scope }}/ai/suggestions?page={{ p }}&q={{ q|urlencode }}&module={{ module|urlencode }}&min={{ min }}"
+                hx-target="#aiSuggestions"
+                hx-select="#aiSuggestions"
+                hx-swap="outerHTML"
+                class="px-2 py-1 rounded text-xs {{ 'bg-slate-900 text-white' if p == page else 'bg-slate-100 text-slate-700' }}">
+                {{ p }}
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Run modal -->
+<div id="aiRunModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-28 w-[92%] max-w-md rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Run AI classification</div>
+      <button id="aiRunClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <form id="aiRunForm"
+            hx-post="/targets/{{ scope }}/ai/classify"
+            hx-target="#aiRunStatus"
+            hx-swap="innerHTML">
+        <label class="block">
+          <span class="text-slate-600">Source</span>
+          <select name="source" class="mt-1 w-full border rounded px-2 py-1.5">
+            <option value="urls">urls.txt (semua)</option>
+            <option value="module">module file (pilih)</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-slate-600">Module (opsional)</span>
+          <select name="module" class="mt-1 w-full border rounded px-2 py-1.5">
+            <option value="">auto-detect</option>
+            {% for m in ['subdomains','open_redirect','documents','sensitive_paths','params','params_urls','sensitive_params','jwt_candidates','robots'] %}
+              <option value="{{ m }}">{{ m }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="flex items-center gap-3">
+          <label class="inline-flex items-center gap-2">
+            <span>limit</span>
+            <input type="number" name="limit" min="50" max="50000" value="2000"
+                   class="w-28 border rounded px-2 py-1.5">
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <span>min score</span>
+            <input type="number" name="min" min="0" max="100" value="70"
+                   class="w-20 border rounded px-2 py-1.5">
+          </label>
+        </div>
+        <div class="pt-2 flex items-center gap-2">
+          <button class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</button>
+          <span id="aiRunStatus" class="text-xs text-slate-500"></span>
+        </div>
+      </form>
+      <p class="text-xs text-slate-500">
+        Hasil sementara disimpan ke <code>__ai__/candidates.tsv</code>. Gunakan tombol Accept/Reject
+        untuk memindahkan ke file modul yang sesuai.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const open  = () => modal.classList.remove('hidden');
+  const close = () => modal.classList.add('hidden');
+
+  const runBtn  = document.getElementById('aiRunBtn');
+  const modal   = document.getElementById('aiRunModal');
+  const closeBtn= document.getElementById('aiRunClose');
+
+  runBtn?.addEventListener('click', open);
+  closeBtn?.addEventListener('click', close);
+  modal?.addEventListener('click', (e)=>{
+    if (e.target === modal || (e.target.classList && e.target.classList.contains('bg-black/40'))) close();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+  });
+})();
+</script>

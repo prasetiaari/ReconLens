@@ -5,6 +5,7 @@
 {% set status_counts = dash.get('status_counts', {}) %}
 {% set ctypes = dash.get('ctypes', {}) %}
 {% set last_probe_iso = dash.get('last_probe_iso') %}
+{% set has_timeago = has_timeago if has_timeago is defined else False %}
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
   <!-- Total URLs -->
@@ -33,12 +34,11 @@
     <div class="text-xs uppercase tracking-wide text-slate-500">Last Probe</div>
     <div class="mt-1 text-xl font-medium">
       {% if last_probe_iso %}
-        {# Use timeago filter if registered; otherwise show raw ISO #}
         {% if has_timeago %}
-  {{ dash.last_probe_iso|timeago }}
-{% else %}
-  {{ dash.last_probe_iso or '-' }}
-{% endif %}
+          {{ dash.last_probe_iso|timeago }}
+        {% else %}
+          {{ dash.last_probe_iso or '-' }}
+        {% endif %}
       {% else %}
         <span class="text-slate-400">-</span>
       {% endif %}

@@ -522,7 +522,6 @@ async def target_detail(request: Request, scope: str):
 async def module_view(request: Request, scope: str, module: str, q: str = ""):
     mod = (module or "").strip().lower()
 
-    # hand off to subdomains page
     if mod == "subdomains":
         return await subdomains_page(scope=scope, request=request)
 
@@ -536,17 +535,16 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Module file not found")
 
-    # ------------ read filters ------------
+    # ---------- filters ----------
     page      = int(request.query_params.get("page") or 1)
     page_size = int(request.query_params.get("page_size") or 50)
-    if page_size < 1:
-        page_size = 50
+    if page_size < 1: page_size = 50
 
-    http_class = (request.query_params.get("http_class") or "").strip().lower()   # "2xx" / "3xx" ...
+    http_class = (request.query_params.get("http_class") or "").strip().lower()
     codes_str  = (request.query_params.get("codes") or "").strip()
     ctype_sub  = (request.query_params.get("ctype") or "").strip().lower()
-    scheme_f   = (request.query_params.get("scheme") or "").strip().lower()       # "http"/"https"/"(any)"
-    host_f     = (request.query_params.get("host") or "").strip().lower()         # subdomain filter
+    scheme_f   = (request.query_params.get("scheme") or "").strip().lower()
+    host_f     = (request.query_params.get("host") or "").strip().lower()
     try:
         min_size = int(request.query_params.get("min_size")) if request.query_params.get("min_size") else None
     except Exception:
@@ -556,19 +554,17 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     except Exception:
         max_size = None
 
-    # exact codes set (if present, overrides class)
     codes_set = set()
     if codes_str:
         for tok in codes_str.replace(";", ",").split(","):
             tok = tok.strip()
             if tok.isdigit():
-                try:
-                    codes_set.add(int(tok))
-                except:
-                    pass
+                codes_set.add(int(tok))
 
-    # ------------ load corpus ------------
+    # ---------- load corpus + build host options ----------
     raw_items: list[str] = []
+    host_options_set: set[str] = set()
+
     with path.open("r", encoding="utf-8", errors="ignore") as f:
         for ln in f:
             s = (ln or "").strip()
@@ -577,18 +573,28 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             if q and q.lower() not in s.lower():
                 continue
             raw_items.append(s)
+            # collect distinct hosts for the dropdown (from the module file)
+            try:
+                p = urlparse(s)
+                h = (p.netloc or "").lower()
+                if h:
+                    host_options_set.add(h)
+            except Exception:
+                pass
 
-    # enrich maps
+    host_options = sorted(host_options_set)
+
+    # ---------- enrich ----------
     enrich_host  = load_enrich(outputs_root, scope) or {}
     enrich_url   = load_url_enrich(outputs_root, scope) or {}
 
-    # ------------ build + apply filters BEFORE pagination ------------
     def pick(*vals):
         for v in vals:
             if v not in (None, "", "-", "None"):
                 return v
         return None
 
+    # ---------- apply filters BEFORE pagination ----------
     filtered_rows: list[dict] = []
     for s in raw_items:
         try:
@@ -598,7 +604,6 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
 
         host = (p.netloc.lower() if p else "")
         if host_f and host != host_f:
-            # subdomain filter
             continue
 
         rec_host = enrich_host.get(host) if host else None
@@ -608,7 +613,6 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             or enrich_url.get(s + "/")
         )
 
-        # choose scheme
         scheme = (
             (rec_url.get("scheme") if rec_url and rec_url.get("scheme") else None)
             or (rec_host.get("scheme") if rec_host and rec_host.get("scheme") else None)
@@ -618,7 +622,6 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             if scheme != scheme_f:
                 continue
 
-        # unify fields (prefer URL-level)
         code  = pick(rec_url.get("code")  if rec_url else None,  rec_host.get("code")  if rec_host else None)
         size  = pick(rec_url.get("size")  if rec_url else None,  rec_host.get("size")  if rec_host else None)
         title = pick(rec_url.get("title") if rec_url else None,  rec_host.get("title") if rec_host else None)
@@ -629,20 +632,11 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
                      rec_url.get("ts") if rec_url else None,
                      rec_host.get("ts") if rec_host else None)
 
-        # normalize ints for filters
-        code_i = None
-        try:
-            code_i = int(code) if code is not None else None
-        except Exception:
-            code_i = None
+        try: code_i = int(code) if code is not None else None
+        except: code_i = None
+        try: size_i = int(size) if size is not None else None
+        except: size_i = None
 
-        size_i = None
-        try:
-            size_i = int(size) if size is not None else None
-        except Exception:
-            size_i = None
-
-        # exact codes override http class
         if codes_set:
             if code_i is None or code_i not in codes_set:
                 continue
@@ -651,18 +645,13 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
                 if code_i is None or (code_i // 100) != int(http_class[0]):
                     continue
 
-        if ctype_sub:
-            if not ctype or ctype_sub not in str(ctype).lower():
-                continue
+        if ctype_sub and (not ctype or ctype_sub not in str(ctype).lower()):
+            continue
+        if min_size is not None and (size_i is None or size_i < min_size):
+            continue
+        if max_size is not None and (size_i is None or size_i > max_size):
+            continue
 
-        if min_size is not None:
-            if size_i is None or size_i < min_size:
-                continue
-        if max_size is not None:
-            if size_i is None or size_i > max_size:
-                continue
-
-        # final URL (ensure scheme)
         final = s
         if p and not p.scheme and scheme:
             final = f"{scheme}://{host}{p.path or '/'}"
@@ -672,9 +661,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
                 final += f"#{p.fragment}"
 
         alive  = (
-            (rec_url.get("alive") if rec_url and "alive" in rec_url else None)
-            if rec_url is not None else
-            (rec_host.get("alive") if rec_host and "alive" in rec_host else None)
+            rec_url.get("alive") if (rec_url and "alive" in rec_url) else
+            (rec_host.get("alive") if (rec_host and "alive" in rec_host) else None)
         )
         status = "up" if alive is True else ("down" if alive is False else "-")
 
@@ -691,16 +679,14 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             "scheme": scheme,
         })
 
-    # ------------ paginate AFTER all filters ------------
+    # ---------- paginate ----------
     total       = len(filtered_rows)
     total_pages = max(1, (total + page_size - 1) // page_size)
-    if page > total_pages:
-        page = total_pages
+    if page > total_pages: page = total_pages
     start = (page - 1) * page_size
     end   = start + page_size
     rows  = filtered_rows[start:end]
 
-    # stats for tabs
     stats_pack = _gather_stats(scope)
     stats = stats_pack["stats"]
     stats_map = {row["module"]: row for row in stats}
@@ -720,6 +706,9 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "max_size": max_size,
         "scheme": scheme_f or "(any)",
         "host": host_f,
+
+        # dropdown options for Subdomain filter
+        "host_options": host_options,
 
         # pager context
         "page": page,
