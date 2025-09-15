@@ -1,9 +1,10 @@
 {# templates/_pager.html #}
-{# expects: page, total_pages, page_url, page_size #}
+{# expects: page, total_pages, page_url, page_size, extra_qs (optional) #}
 
 {% set p  = page|int %}
 {% set tp = total_pages|int %}
 {% set ps = page_size|int %}
+{% set xq = extra_qs or "" %}
 
 <div class="pager flex items-center justify-between gap-4 text-sm">
   <!-- rows/page -->
@@ -17,15 +18,17 @@
           <option value="{{ opt }}" {{ 'selected' if opt==ps else '' }}>{{ opt }}</option>
         {% endfor %}
       </select>
-      {# keep current page when changing page_size by clamping to new total later #}
       <input type="hidden" name="page" value="{{ p }}">
+      {# bawa filter lain (q, host) via hidden #}
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+      {% if host_filter %}<input type="hidden" name="host" value="{{ host_filter }}">{% endif %}
     </form>
   </div>
 
   <!-- numeric pager -->
   <div class="flex items-center gap-2">
     {# Prev #}
-    {% set prev_href = page_url ~ '?page=' ~ (p-1) ~ '&page_size=' ~ ps %}
+    {% set prev_href = page_url ~ '?page=' ~ (p-1) ~ '&page_size=' ~ ps ~ xq %}
     <a href="{{ prev_href }}"
        class="px-3 py-1 rounded-md border transition
               {{ 'text-slate-400 border-slate-200 pointer-events-none cursor-not-allowed' if p<=1 else 'hover:bg-slate-50 border-slate-300' }}">
@@ -43,13 +46,13 @@
 
     {# jump to 1 + ellipsis #}
     {% if start > 1 %}
-      <a href="{{ page_url }}?page=1&page_size={{ ps }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">1</a>
+      <a href="{{ page_url }}?page=1&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">1</a>
       {% if start > 2 %}<span class="px-2 text-slate-400">…</span>{% endif %}
     {% endif %}
 
     {# main range #}
     {% for n in range(start, end + 1) %}
-      {% set href = page_url ~ '?page=' ~ n ~ '&page_size=' ~ ps %}
+      {% set href = page_url ~ '?page=' ~ n ~ '&page_size=' ~ ps ~ xq %}
       {% if n == p %}
         <span class="px-3 py-1 rounded-md bg-slate-900 text-white border border-slate-900">{{ n }}</span>
       {% else %}
@@ -60,11 +63,11 @@
     {# ellipsis + jump to last #}
     {% if end < tp %}
       {% if end < tp-1 %}<span class="px-2 text-slate-400">…</span>{% endif %}
-      <a href="{{ page_url }}?page={{ tp }}&page_size={{ ps }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">{{ tp }}</a>
+      <a href="{{ page_url }}?page={{ tp }}&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">{{ tp }}</a>
     {% endif %}
 
     {# Next #}
-    {% set next_href = page_url ~ '?page=' ~ (p+1) ~ '&page_size=' ~ ps %}
+    {% set next_href = page_url ~ '?page=' ~ (p+1) ~ '&page_size=' ~ ps ~ xq %}
     <a href="{{ next_href }}"
        class="px-3 py-1 rounded-md border transition
               {{ 'text-slate-400 border-slate-200 pointer-events-none cursor-not-allowed' if p>=tp else 'hover:bg-slate-50 border-slate-300' }}">

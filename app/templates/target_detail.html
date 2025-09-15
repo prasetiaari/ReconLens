@@ -26,9 +26,11 @@
 {% endif %}
 
 <div class="grid">
-  {% include "_summary_cards.html" %}
+  {% include "_summary_cards.html" with context %}
 </div>
 <br>
+
+{% include "_ai_suggestions.html" with context %}
 
 {# Empty-state besar kalau belum ada urls.txt #}
 {% if not urls_count or urls_count == 0 %}
@@ -57,17 +59,30 @@
   </div>
 {% endif %}
 
-{# Banner "No module files yet" jika urls.txt ADA tapi modul kosong #}
-{% set total_module_lines = (stats | map(attribute='lines') | sum) | default(0) %}
-{% if urls_count and urls_count > 0 and total_module_lines == 0 %}
+{# Banner "No module files yet" — SEKARANG berbasis klasifikasi BARU #}
+{% set new_modules = [
+  'auth_login','admin_panel','api','upload','download_dump',
+  'debug_dev','docs_swagger','config_backup_source','sensitive_functionality',
+  'monitoring','payments','static_assets','file_disclosure','dirsearch','other'
+] %}
+{% set has_any_new = false %}
+{% for st in stats %}
+  {% if st.module in new_modules and st.lines > 0 %}
+    {% set has_any_new = true %}
+  {% endif %}
+{% endfor %}
+
+{% if urls_count and urls_count > 0 and (not has_modules) %}
   <div class="p-6 rounded-xl bg-white shadow border border-slate-200 mt-4">
     <div class="text-lg font-semibold text-slate-800 mb-1">No module files yet</div>
     <p class="text-slate-600">
-      Kamu sudah punya <code class="px-1 rounded bg-slate-100">urls.txt</code>, tapi file-file modul belum dibuat.
-      Jalankan proses klasifikasi untuk membangun berkas modul
-      (<code class="px-1 rounded bg-slate-100">sensitive_paths.txt</code>,
-      <code class="px-1 rounded bg-slate-100">open_redirect.txt</code>,
-      <code class="px-1 rounded bg-slate-100">documents.txt</code>, dll).
+      Kamu sudah punya <code class="px-1 rounded bg-slate-100">urls.txt</code>, tapi file-file klasifikasi baru belum dibuat.
+      Jalankan proses (re)build untuk menghasilkan berkas:
+      <code class="px-1 rounded bg-slate-100">auth_login.txt</code>,
+      <code class="px-1 rounded bg-slate-100">admin_panel.txt</code>,
+      <code class="px-1 rounded bg-slate-100">api.txt</code>,
+      <code class="px-1 rounded bg-slate-100">…</code>,
+      <code class="px-1 rounded bg-slate-100">other.txt</code>.
     </p>
     <div class="mt-4 flex flex-wrap gap-3">
       <button id="rebuildBtnSecondary"
@@ -82,42 +97,94 @@
   </div>
 {% endif %}
 
+{# Grid cards DINAMIS: Subdomains (selalu ada card), lalu kategori baru yang non-empty #}
 {% if stats %}
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+    {# Subdomains — hardcoded card, tampil meski 0 untuk awareness #}
+    {% set subd = None %}
     {% for st in stats %}
-      <div class="p-4 rounded-xl bg-white shadow hover:shadow-md transition">
-        <div class="flex items-start justify-between">
-          <div class="space-y-1">
-            <div class="text-sm uppercase tracking-wide text-slate-500">{{ st.module }}</div>
-            <div class="text-2xl font-semibold">
-              {{ "{:,}".format(st.lines) }}
-              <span class="text-sm font-normal text-slate-400">lines</span>
-            </div>
+      {% if st.module == "subdomains" %}
+        {% set subd = st %}
+      {% endif %}
+    {% endfor %}
+    {% set sub = stats_map.get('subdomains') %}
+    <div class="p-4 rounded-xl bg-white shadow hover:shadow-md transition">
+      <div class="flex items-start justify-between">
+        <div class="space-y-1">
+          <div class="text-sm uppercase tracking-wide text-slate-500">subdomains</div>
+          <div class="text-2xl font-semibold">
+            {{ (sub.hosts if sub and sub.hosts is not none else (sub.lines if sub else 0)) }}
+            <span class="text-sm font-normal text-slate-400">hosts</span>
           </div>
-          <div class="text-right text-xs text-slate-400">
-            <div class="truncate max-w-[18ch]">{{ st.file }}</div>
-            <div>{{ "{:,}".format(st.size_bytes) }} bytes</div>
-          </div>
+          <p class="text-xs text-slate-500">
+              Last scan: {{ (dash.get('last_scans') or {}).get('subdomains', '-')[:19] }}
+            </p>
         </div>
-
-        <div class="mt-4 flex gap-2">
-          {% if st.module == "subdomains" %}
-            <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-               href="/targets/{{ scope }}/subdomains">View</a>
-          {% else %}
-            <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-               href="/targets/{{ scope }}/{{ st.module }}">View</a>
-          {% endif %}
-          <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
-             href="/targets/{{ scope }}/download/{{ st.file }}">Download</a>
-
-          {% if st.lines == 0 %}
-            <span class="ml-auto px-2 py-1 rounded bg-slate-100 text-slate-500 text-xs">empty</span>
-          {% else %}
-            <span class="ml-auto px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs">ready</span>
-          {% endif %}
+        <div class="text-right text-xs text-slate-400">
+          <div class="truncate max-w-[18ch]">subdomains.txt</div>
+          <div>{{ "{:,}".format((subd.size_bytes if subd else 0) | int) }} bytes</div>
         </div>
       </div>
+      <div class="mt-4 flex gap-2">
+        <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
+           href="/targets/{{ scope }}/subdomains">View</a>
+        <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
+           href="/targets/{{ scope }}/download/subdomains.txt">Download</a>
+          <a class="px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm"
+             href="/targets/{{ scope }}/collect/probe_subdomains"
+             target="_blank" rel="noopener">
+             🌐 Probe
+          </a>
+        {% if (subd and subd.lines > 0) %}
+          <span class="ml-auto px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs">ready</span>
+        {% else %}
+          <span class="ml-auto px-2 py-1 rounded bg-slate-100 text-slate-500 text-xs">empty</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Kategori baru — tampil DINAMIS hanya jika >0 #}
+    {% set order = [
+      'auth_login','admin_panel','api','upload','download_dump',
+      'debug_dev','docs_swagger','config_backup_source','sensitive_functionality',
+      'monitoring','payments','static_assets','file_disclosure','dirsearch','other'
+    ] %}
+
+    {% for key in order %}
+      {% for st in stats if st.module == key and st.lines > 0 %}
+        <div class="p-4 rounded-xl bg-white shadow hover:shadow-md transition">
+          <div class="flex items-start justify-between">
+            <div class="space-y-1">
+              <div class="text-sm uppercase tracking-wide text-slate-500">{{ st.module }}</div>
+              <div class="text-2xl font-semibold">
+                {{ "{:,}".format(st.lines) }}
+                <span class="text-sm font-normal text-slate-400">lines</span>
+              </div>
+              <p class="text-xs text-slate-500">
+                Last scan: {{ (dash.last_scans.get(st.module) or '-')[:19] }}
+              </p>
+            </div>
+            <div class="text-right text-xs text-slate-400">
+              <div class="truncate max-w-[18ch]">{{ st.file }}</div>
+              <div>{{ "{:,}".format(st.size_bytes) }} bytes</div>
+            </div>
+          </div>
+
+          <div class="mt-4 flex gap-2">
+            <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
+               href="/targets/{{ scope }}/{{ st.module }}">View</a>
+            <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
+               href="/targets/{{ scope }}/download/{{ st.file }}">Download</a>
+               {# 🔍 Tombol Probe (dinamis per module) #}
+              <a class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm"
+                 href="/targets/{{ scope }}/collect/probe_module?module={{ st.module }}"
+                 target="_blank" rel="noopener">
+                 🔍 Probe
+              </a>
+            <span class="ml-auto px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs">ready</span>
+          </div>
+        </div>
+      {% endfor %}
     {% endfor %}
   </div>
 {% else %}
@@ -290,7 +357,7 @@
   runBtn?.addEventListener('click', ()=>{
     const scopeChoice = document.querySelector('input[name="probe_scope"]:checked')?.value || 'all';
     if (scopeChoice === 'module') {
-      const m = modSel?.value || 'documents';
+      const m = modSel?.value || 'other';
       window.open(`/targets/${encodeURIComponent(scope)}/probe/module/${encodeURIComponent(m)}`, '_blank');
     } else {
       window.open(`/targets/${encodeURIComponent(scope)}/probe/all`, '_blank');

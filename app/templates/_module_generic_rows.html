@@ -1,24 +1,30 @@
-{% for r in rows %}
-<tr class="border-b last:border-0">
-
-  <td class="p-3 font-mono text-[13px] break-all">
-    <a href="{{ r.url }}" target="_blank" rel="noreferrer"
-       class="text-decoration-none text-monospace">{{ r.url }}</a>
-    {% if r.param_hit %}
-      <span class="badge bg-warning text-dark ms-1">{{ r.param_hit }}</span>
-    {% elif r.has_query %}
-      <span class="badge bg-light text-muted ms-1">query</span>
-    {% endif %}
-  </td>
-
-  <td class="p-3 text-slate-600">{{ r.status }}</td>
-  <td class="p-3 text-slate-600">{{ r.code }}</td>
-  <td class="p-3 text-slate-600">{{ r.size }}</td>
-  <td class="p-3 truncate max-w-[52ch]">{{ r.title }}</td>
-  <td class="p-3 text-xs text-slate-500 whitespace-nowrap">{{ r.last_probe }}</td>
-
-  <td class="p-3">
-    <a class="text-blue-700 hover:underline" href="{{ r.url }}" target="_blank" rel="noopener">open</a>
-  </td>
-</tr>
-{% endfor %}
+<tbody id="rows">
+  {% for r in rows %}
+    <tr class="border-t">
+      <td class="px-4 py-2 font-mono text-[13px] break-all">{{ r.url }}</td>
+      <td class="px-4 py-2">
+        {% if r.status == 'up' %}<span class="text-green-600">up</span>
+        {% elif r.status == 'down' %}<span class="text-rose-600">down</span>
+        {% else %}-{% endif %}
+      </td>
+      <td class="px-4 py-2">{{ r.code if r.code is not none else '-' }}</td>
+      <td class="px-4 py-2">
+        {% if r.size is not none %}{{ r.size }}{% else %}-{% endif %}
+      </td>
+      <td class="px-4 py-2 truncate max-w-[60ch]">
+        {% if r.title %}<span title="{{ r.title }}">{{ r.title }}</span>
+        {% else %}-{% endif %}
+      </td>
+      <td class="px-4 py-2 text-xs text-slate-500">
+        {{ r.last_probe if r.last_probe else '-' }}
+      </td>
+      <td class="px-4 py-2">
+        {% if r.open_url %}
+          <a class="text-blue-700 underline" href="{{ r.open_url }}" target="_blank" rel="noopener">open</a>
+        {% else %}
+          <span class="text-slate-400">open</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+</tbody>

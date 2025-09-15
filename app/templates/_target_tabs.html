@@ -1,44 +1,80 @@
-{# _target_tabs.html #}
-{# var yg dipakai:
-   - scope   : target scope (wajib)
-   - active  : salah satu dari "overview" | "subdomains" | "sensitive" | "graphs"
-#}
+{# app/templates/_target_tabs.html #}
+{% set active_mod = (module if module is defined and module else (active if active is defined else 'overview')) %}
+{% set scope_val = scope %}
 
-<div class="sticky top-[64px] z-30 bg-slate-50/90 backdrop-blur border-b border-slate-200">
-  <nav class="max-w-7xl mx-auto px-4 py-2 flex gap-2">
-    {# helper class #}
-    {% set base = "px-4 py-2 rounded-xl text-sm font-medium" %}
-    {% set on   = "bg-slate-900 text-white shadow" %}
-    {% set off  = "bg-slate-100 text-slate-700 hover:bg-slate-200" %}
+{# --- safe defaults so this partial works across all pages --- #}
+{% set stats      = stats|default([]) %}
+{% set stats_map  = stats_map|default({}) %}
+{% set urls_count = urls_count|default(0) %}
+{% set active     = active|default('overview') %}
+{% set scope      = scope|default('') %}
 
-    <a href="/targets/{{ scope }}"
-       class="{{ base }} {{ 'overview' == active and on or off }}">
-      Overview
-    </a>
+{# "Documents" link diarahkan ke file_disclosure jika ada; fallback ke "documents" #}
+{% set docs_link = '/targets/' ~ scope_val ~ '/' ~ (
+  'file_disclosure'
+  if (stats_map is defined and stats_map and stats_map.get('file_disclosure'))
+  else 'documents'
+) %}
 
-    <a href="/targets/{{ scope }}/subdomains"
-       class="{{ base }} {{ 'subdomains' == active and on or off }}">
-      Subdomains
-    </a>
+<div class="flex items-center gap-2">
+  <a href="/targets/{{ scope_val }}"
+     class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='overview' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    Overview
+  </a>
 
-    <a href="/targets/{{ scope }}/sensitive_paths"
-       class="{{ base }} {{ 'SENSITIVE_PATHS' == active and on or off }}">
-      Sensitive Paths
-    </a>
-    
-    <a href="/targets/{{ scope }}/open_redirect"
-       class="{{ base }} {{ 'OPEN_REDIRECT' == active and on or off }}">
-      Open Redirect
-    </a>
-    
-    <a href="/targets/{{ scope }}/documents"
-       class="{{ base }} {{ 'DOCUMENTS' == active and on or off }}">
-      Documents
-    </a>
+  <a href="/targets/{{ scope_val }}/subdomains"
+     class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='subdomains' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    Subdomains
+  </a>
 
-    <a href="/targets/{{ scope }}/graphs"
-       class="{{ base }} {{ 'graphs' == active and on or off }}">
-      Graphs
-    </a>
-  </nav>
+  {% set dirsearch_stat = stats_map.get('dirsearch') %}
+    {% if dirsearch_stat and (dirsearch_stat.lines or 0) > 0 %}
+      <a href="/targets/{{ scope }}/dirsearch"
+         class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='dirsearch' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+        Dirsearch <!--<span class="text-slate-400">({{ dirsearch_stat.lines }})</span>-->
+      </a>
+    {% endif %}
+
+  <a href="/targets/{{ scope_val }}/graphs"
+     class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='graphs' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    Graphs
+  </a>
+
+  {# More ▾ — hanya tampil kalau ada stats (di Overview) #}
+  {% set has_stats = stats is defined and stats %}
+  <div class="relative" x-data="{open:false}">
+    <button type="button"
+            class="ml-1 px-3 py-2 rounded-lg text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700"
+            onclick="(function(btn){
+              const menu = btn.nextElementSibling;
+              menu.classList.toggle('hidden');
+              function closer(e){
+                if(!menu.contains(e.target) && e.target!==btn){ menu.classList.add('hidden'); document.removeEventListener('click', closer); }
+              }
+              document.addEventListener('click', closer);
+            })(this)">
+      More ▾
+    </button>
+
+    <div class="absolute z-10 mt-1 w-64 rounded-lg border border-slate-200 bg-white shadow-lg hidden">
+      <div class="py-1 max-h-[60vh] overflow-auto">
+        {% if has_stats %}
+          {# exclude primary buckets #}
+          {% set exclude = ['subdomains'] %}
+          {% for st in stats if st.lines > 0 and st.module not in exclude %}
+            <a href="/targets/{{ scope_val }}/{{ st.module }}"
+               class="block px-3 py-2 text-sm hover:bg-slate-50">
+              {{ st.module|upper|replace('_',' ') }}
+              <span class="text-slate-400">({{ "{:,}".format(st.lines) }})</span>
+            </a>
+          {% endfor %}
+          {% if stats|selectattr('lines','gt',0)|list|length == 0 %}
+            <div class="px-3 py-2 text-sm text-slate-400">No modules yet</div>
+          {% endif %}
+        {% else %}
+          <div class="px-3 py-2 text-sm text-slate-400">Open Overview for full list</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
