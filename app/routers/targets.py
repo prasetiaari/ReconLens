@@ -545,6 +545,11 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     ctype_sub  = (request.query_params.get("ctype") or "").strip().lower()
     scheme_f   = (request.query_params.get("scheme") or "").strip().lower()
     host_f     = (request.query_params.get("host") or "").strip().lower()
+    # NEW: HTTP Method filter (normalize to UPPER; treat '(any)' as empty)
+    method_filter = (request.query_params.get("method") or "").strip().upper()
+    if method_filter in ("(ANY)", "ANY"):
+        method_filter = ""
+
     try:
         min_size = int(request.query_params.get("min_size")) if request.query_params.get("min_size") else None
     except Exception:
@@ -613,6 +618,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             or enrich_url.get(s + "/")
         )
 
+        # scheme filter
         scheme = (
             (rec_url.get("scheme") if rec_url and rec_url.get("scheme") else None)
             or (rec_host.get("scheme") if rec_host and rec_host.get("scheme") else None)
@@ -621,6 +627,17 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         if scheme_f and scheme_f not in ("", "(any)", "any"):
             if scheme != scheme_f:
                 continue
+
+        # NEW: method extraction + filter
+        method_val = pick(
+            (rec_url.get("method") if rec_url else None),
+            (rec_url.get("mode")   if rec_url else None),
+            (rec_host.get("method") if rec_host else None),
+            (rec_host.get("mode")   if rec_host else None),
+        )
+        method_val_u = (str(method_val).upper() if method_val else "")
+        if method_filter and method_val_u != method_filter:
+            continue
 
         code  = pick(rec_url.get("code")  if rec_url else None,  rec_host.get("code")  if rec_host else None)
         size  = pick(rec_url.get("size")  if rec_url else None,  rec_host.get("size")  if rec_host else None)
@@ -677,6 +694,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             "last_probe": _fmt_last_probe(lastp),
             "host": host,
             "scheme": scheme,
+            # NEW: echo method ke row (optional untuk kolom di UI)
+            "method": method_val_u or None,
         })
 
     # ---------- paginate ----------
@@ -706,6 +725,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "max_size": max_size,
         "scheme": scheme_f or "(any)",
         "host": host_f,
+        # NEW: kirim ke template/pager
+        "method_filter": method_filter or "(any)",
 
         # dropdown options for Subdomain filter
         "host_options": host_options,

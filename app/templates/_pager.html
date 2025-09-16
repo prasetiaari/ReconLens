@@ -19,9 +19,12 @@
         {% endfor %}
       </select>
       <input type="hidden" name="page" value="{{ p }}">
-      {# bawa filter lain (q, host) via hidden #}
+      {# bawa filter lain (q, host, method, etc.) via hidden; htmx juga akan include #filters #}
       {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       {% if host_filter %}<input type="hidden" name="host" value="{{ host_filter }}">{% endif %}
+      {% if method_filter and method_filter|lower not in ['(any)','any'] %}
+        <input type="hidden" name="method" value="{{ method_filter }}">
+      {% endif %}
     </form>
   </div>
 

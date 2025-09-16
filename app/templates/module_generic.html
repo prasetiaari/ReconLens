@@ -18,7 +18,7 @@
     <input name="q" value="{{ q|default('') }}" placeholder="substring..." class="input w-full"/>
   </div>
 
-  <div class="col-span-6 md:col-span-2">
+  <div class="col-span-6 md:col-span-1">
     <label class="block text-sm text-slate-500 mb-1">HTTP Class</label>
     {% set hc = (http_class or '(any)') %}
     <select name="http_class" class="input w-full">
@@ -29,13 +29,21 @@
       <option value="5xx" {{ 'selected' if hc=='5xx' else '' }}>5xx</option>
     </select>
   </div>
-
-  <div class="col-span-6 md:col-span-3">
+  <div class="col-span-6 md:col-span-2">
+    <label class="block text-sm text-slate-500 mb-1">HTTP Method</label>
+    {% set mf = (method_filter or '(any)') %}
+    <select name="method" class="input w-full">
+      {% for opt in ['(any)','GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'] %}
+        <option value="{{ opt }}" {{ 'selected' if opt==mf else '' }}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-span-6 md:col-span-2">
     <label class="block text-sm text-slate-500 mb-1">Exact Codes</label>
     <input name="codes" value="{{ codes|default('') }}" placeholder="comma-separated, overrides class" class="input w-full"/>
   </div>
 
-  <div class="col-span-12 md:col-span-3">
+  <div class="col-span-12 md:col-span-2">
     <label class="block text-sm text-slate-500 mb-1">Content-Type contains</label>
     <input name="ctype" value="{{ ctype|default('') }}" placeholder="e.g. pdf,msword,zip" class="input w-full"/>
   </div>
@@ -99,7 +107,7 @@
       <thead class="bg-slate-100 text-slate-700">
         <tr class="bg-slate-100 text-slate-600 text-sm">
           <th class="px-4 py-2 text-left w-[36ch]">URL</th>
-          <th class="px-12 py-2 text-left">status</th>
+          <th class="px-12 py-2 text-left">method</th>  {# was: status #}
           <th class="px-4 py-2 text-left">code</th>
           <th class="px-4 py-2 text-left">size</th>
           <th class="p-3 text-left max-w-[20ch]">title</th>
@@ -123,7 +131,8 @@
     const f = document.getElementById('filters');
     if (!f) return '';
     const fd = new FormData(f);
-    const keep = ['q','http_class','codes','ctype','min_size','max_size','page_size','scheme','host'];
+    // NEW: include 'method' so pager links keep method filter
+    const keep = ['q','http_class','codes','ctype','min_size','max_size','page_size','scheme','host','method'];
     const p = new URLSearchParams();
     keep.forEach(k => {
       const v = fd.get(k);

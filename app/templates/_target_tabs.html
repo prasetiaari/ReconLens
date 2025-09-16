@@ -28,12 +28,21 @@
   </a>
 
   {% set dirsearch_stat = stats_map.get('dirsearch') %}
-    {% if dirsearch_stat and (dirsearch_stat.lines or 0) > 0 %}
-      <a href="/targets/{{ scope }}/dirsearch"
-         class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='dirsearch' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
-        Dirsearch <!--<span class="text-slate-400">({{ dirsearch_stat.lines }})</span>-->
-      </a>
-    {% endif %}
+  {% if dirsearch_stat and (dirsearch_stat.lines or 0) > 0 %}
+    <a href="/targets/{{ scope }}/dirsearch"
+       class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='dirsearch' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+      Dirsearch <!--<span class="text-slate-400">({{ dirsearch_stat.lines }})</span>-->
+    </a>
+  {% endif %}
+
+  {# NEW: tampilkan tab PROBE_PATHS jika modulnya ada (ada file & lines>0) #}
+  {% set probe_paths_stat = stats_map.get('probe_paths') %}
+  {% if probe_paths_stat and (probe_paths_stat.lines or 0) > 0 %}
+    <a href="/targets/{{ scope }}/probe_paths"
+       class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='probe_paths' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+      Probe Paths
+    </a>
+  {% endif %}
 
   <a href="/targets/{{ scope_val }}/graphs"
      class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='graphs' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
@@ -60,7 +69,7 @@
       <div class="py-1 max-h-[60vh] overflow-auto">
         {% if has_stats %}
           {# exclude primary buckets #}
-          {% set exclude = ['subdomains'] %}
+          {% set exclude = ['subdomains', 'dirsearch', 'probe_paths'] %}
           {% for st in stats if st.lines > 0 and st.module not in exclude %}
             <a href="/targets/{{ scope_val }}/{{ st.module }}"
                class="block px-3 py-2 text-sm hover:bg-slate-50">

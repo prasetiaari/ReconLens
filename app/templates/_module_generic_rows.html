@@ -2,10 +2,18 @@
   {% for r in rows %}
     <tr class="border-t">
       <td class="px-4 py-2 font-mono text-[13px] break-all">{{ r.url }}</td>
-      <td class="px-4 py-2">
+      <!--<td class="px-4 py-2">
         {% if r.status == 'up' %}<span class="text-green-600">up</span>
         {% elif r.status == 'down' %}<span class="text-rose-600">down</span>
         {% else %}-{% endif %}
+      </td>-->
+      {# ganti status → method #}
+      <td class="px-4 py-2">
+        {% if r.method %}
+          <span class="font-mono uppercase">{{ r.method }}</span>
+        {% else %}
+          -
+        {% endif %}
       </td>
       <td class="px-4 py-2">{{ r.code if r.code is not none else '-' }}</td>
       <td class="px-4 py-2">
