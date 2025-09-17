@@ -1,0 +1,200 @@
+{# app/templates/_module_probe_modal.html #}
+{# expects (optional): scope, module, lines, host_options; all have safe defaults #}
+
+{% set scope = scope|default('') %}
+{% set module = module|default('') %}
+{% set lines = lines if lines is defined else None %}
+{% set host_options = host_options|default([]) %}
+
+{% set m = (module or '') %}
+{% set modal_id = 'modProbeModal_' ~ (m if m else 'generic') %}
+{% set open_id  = 'modProbeOpen_' ~ (m if m else 'generic') %}
+{% set run_id   = 'modProbeRun_' ~ (m if m else 'generic') %}
+{% set close_id = 'modProbeClose_' ~ (m if m else 'generic') %}
+
+{# --- Trigger: small text link, like Overview actions --- #}
+<span class="inline-flex items-center text-xs">
+  <a id="{{ open_id }}"
+     href="javascript:void(0)"
+     class="whitespace-nowrap {% if m == 'dirsearch' or m == 'probe_paths' %}text-rose-600{% else %}text-slate-500{% endif %} hover:underline">
+    {% if m == 'dirsearch' %}(re)dirsearch
+    {% elif m == 'probe_paths' %}(re)probe paths
+    {% elif m %}(re)probe {{ m|replace('_',' ') }}
+    {% else %}(re)probe
+    {% endif %}
+  </a>
+</span>
+
+{# --- Modal --- #}
+<div id="{{ modal_id }}" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-24 w-[92%] max-w-lg rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">
+        {% if m == 'dirsearch' %}Run Dirsearch
+        {% elif m == 'probe_paths' %}Run Probe Paths
+        {% elif m %}Run Probe: {{ m|upper|replace('_',' ') }}
+        {% else %}Run Probe
+        {% endif %}
+      </div>
+      <button id="{{ close_id }}" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+
+    <div class="p-5 space-y-4 text-sm">
+      <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-700">
+        <div class="font-medium">Active scanning</div>
+        <div>Tool ini akan mengirim request HTTP ke target. Pastikan kamu berizin.</div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-2">
+        <div class="text-slate-600">
+          <div>Scope: <span class="font-mono">{{ scope or '-' }}</span></div>
+          <div>Module: <span class="font-mono">{{ m or '-' }}</span></div>
+          <div>Targets: <span class="font-mono">{{ lines is not none and "{:,}".format(lines) or '-' }}</span> lines</div>
+        </div>
+
+        {# Module-specific controls #}
+        {% if m == 'dirsearch' %}
+          <div class="pt-2 border-t">
+            <label class="block text-xs text-slate-500 mb-1">Subdomain</label>
+            <select id="{{ modal_id }}_host" class="input w-full">
+              <option value="__all__">(all hosts)</option>
+              {% for h in host_options %}
+                <option value="{{ h }}">{{ h }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Wordlist</label>
+
+            {% if wordlists is defined and wordlists %}
+              {# pilih default: nama mengandung "medium" kalau ada, selain itu pakai pertama #}
+              {% set ns = namespace(default_name=wordlists[0].name) %}
+              {% for w in wordlists %}
+                {% if 'medium' in (w.name|lower) %}
+                  {% set ns.default_name = w.name %}
+                {% endif %}
+              {% endfor %}
+
+              <select id="{{ modal_id }}_wordlist" class="input w-full">
+                {% for w in wordlists %}
+                  <option value="{{ w.name }}" {{ 'selected' if w.name == ns.default_name else '' }}>
+                    {{ w.name }} — {{ w.size_human }}
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="mt-1 text-xs text-slate-400">
+                Wordlists loaded from server folder.
+              </div>
+            {% else %}
+              {# fallback jika folder kosong / belum dikonfigurasi #}
+              <select id="{{ modal_id }}_wordlist" class="input w-full">
+                <option value="small">small</option>
+                <option value="medium" selected>medium</option>
+                <option value="big">big</option>
+                <option value="common.txt">common.txt</option>
+              </select>
+              <div class="mt-1 text-xs text-slate-400">
+                Set WORDLISTS_DIR to auto-populate this list.
+              </div>
+            {% endif %}
+          </div>
+
+        {% elif m == 'probe_paths' %}
+          <div class="pt-2 border-t">
+            <label class="block text-xs text-slate-500 mb-1">Paths file (CSV/line)</label>
+            <input id="{{ modal_id }}_paths" class="input w-full" placeholder="e.g. outputs/{{ scope }}/probe_targets.csv">
+            <div class="mt-1 text-xs text-slate-400">Format: <code>path,method[,body]</code> contoh: <code>/,GET</code> · <code>/login,POST,username=admin&amp;password=admin</code></div>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Subdomain (opsional)</label>
+            <select id="{{ modal_id }}_host" class="input w-full">
+              <option value="__all__">(all live hosts)</option>
+              {% for h in host_options %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+            </select>
+          </div>
+
+        {% else %}
+          <div class="text-slate-500 text-sm">No extra options for this module.</div>
+        {% endif %}
+
+        <label class="flex items-start gap-2 mt-1">
+          <input id="{{ modal_id }}_agree" type="checkbox" class="mt-1 accent-rose-600">
+          <span class="text-slate-600">Saya paham ini adalah active scan dan saya memiliki izin.</span>
+        </label>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button id="{{ run_id }}" disabled
+                class="px-3 py-2 rounded-lg bg-rose-600 text-white text-sm disabled:opacity-50">
+          Run
+        </button>
+        <button id="{{ modal_id }}_cancel" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
+          Cancel
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">UI ini membuka tab baru ke:
+        <code>/targets/{{ scope }}/collect/probe_module?module={{ m }}</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  try {
+    const openBtn  = document.getElementById('{{ open_id }}');
+    const modal    = document.getElementById('{{ modal_id }}');
+    const closeBtn = document.getElementById('{{ close_id }}');
+    const cancel   = document.getElementById('{{ modal_id }}_cancel');
+    const runBtn   = document.getElementById('{{ run_id }}');
+    const agree    = document.getElementById('{{ modal_id }}_agree');
+
+    if (!openBtn || !modal) return;
+
+    function open(){ modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); }
+    function close(){ modal.classList.add('hidden');  modal.setAttribute('aria-hidden','true');  }
+
+    openBtn.addEventListener('click', open);
+    closeBtn?.addEventListener('click', close);
+    cancel?.addEventListener('click', close);
+    modal.addEventListener('click', (e)=>{ if (e.target===modal || e.target.classList?.contains('bg-black/40')) close(); });
+    document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && !modal.classList.contains('hidden')) close(); });
+
+    function updateEnable(){ if (runBtn) runBtn.disabled = !(agree?.checked); }
+    agree?.addEventListener('change', updateEnable);
+    updateEnable();
+
+    runBtn?.addEventListener('click', ()=>{
+      const scopeVal  = {{ scope|tojson }};
+      const moduleVal = {{ module|tojson }};
+      const tool = moduleVal; // untuk dirsearch & probe_paths: tool == module
+      let url = `/targets/${encodeURIComponent(scopeVal)}/collect/${encodeURIComponent(tool)}?module=${encodeURIComponent(moduleVal)}&i-have-permission=1`;
+
+      {% if (module|lower) == 'dirsearch' %}
+        const hostSel = document.getElementById('{{ modal_id }}_host');
+        const wordSel = document.getElementById('{{ modal_id }}_wordlist');
+        const hostVal = hostSel?.value || '__all__';
+        const wlVal   = wordSel?.value || 'medium';
+        if (hostVal && hostVal !== '__all__') url += `&host=${encodeURIComponent(hostVal)}`;
+        if (wlVal) url += `&wordlist=${encodeURIComponent(wlVal)}`;
+      {% elif (module|lower) == 'probe_paths' %}
+        const hostSel = document.getElementById('{{ modal_id }}_host');
+        const pathsIn = document.getElementById('{{ modal_id }}_paths');
+        const hostVal = hostSel?.value || '__all__';
+        const pfVal   = (pathsIn?.value || '').trim();
+        if (hostVal && hostVal !== '__all__') url += `&host=${encodeURIComponent(hostVal)}`;
+        if (pfVal) url += `&paths_file=${encodeURIComponent(pfVal)}`;
+      {% endif %}
+
+      window.open(url, '_blank');
+      close();
+    });
+
+  } catch (e) {
+    console.error('module_probe_modal init error', e);
+  }
+})();
+</script>

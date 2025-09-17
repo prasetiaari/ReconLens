@@ -46,23 +46,13 @@
     python -m ReconLens.tools.probe_urls --scope {{ scope }} --module {{ module or 'MODULE_HERE' }} --outputs outputs/
         {%-   endif -%}
 {%- elif tool == 'dirsearch' -%}
-    # Host target diperlukan (buka konsol dengan ?host=sub.example.com)
-    dirsearch -u {{ host or 'https://sub.example.com' }} -E -t 20 -x 404,403,400
+    dirsearch -u {{ host or 'https://sub.example.com' }} --format=simple --full-url --crawl 0 --random-agent --quiet -w {{wordlist}}
+    
 {%- else -%}
 # unknown tool
 {%- endif %}
   </textarea>
 
-  {% if tool == 'dirsearch' %}
-    <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 p-3 text-sm">
-      <div class="font-medium mb-1">Dirsearch notes</div>
-      <ul class="list-disc ml-5 space-y-1">
-        <li>Jalankan konsol ini dari halaman Subdomains → pilih host → <em>Web CLI</em>, atau tambahkan query <code>?host=&lt;subdomain&gt;</code>.</li>
-        <li>Hasil akan disimpan di <code>outputs/{{ scope }}/dirsearch/&lt;host&gt;/</code> dan digabung ke <code>found.txt</code>.</li>
-        <li>“Last scan (dirsearch)” per-host akan diperbarui setelah selesai.</li>
-      </ul>
-    </div>
-  {% endif %}
 
   <!-- Controls -->
   <div class="flex items-center justify-between">

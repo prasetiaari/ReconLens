@@ -101,6 +101,16 @@
   {% set current_page = page %}
   {% set page_size = limit %}
   {% include "_pager.html" %}
+  
+  <!-- untuk tombol reprobe/redirsearch/-->
+<div class="col-span-6 md:col-span-2 flex gap-3 items-end justify-end">
+{# mapping untuk partial #}
+{% set module = (module_name or module)|lower %}
+{% set lines = total %}
+{% set host_options = (discovery_host_options if discovery_host_options else host_options) %}
+
+{% include "_module_probe_modal.html" %}
+</div>
 
   <div class="overflow-x-auto rounded border bg-white">
     <table class="w-full table-fixed border-separate border-spacing-0 rounded-xl overflow-hidden">

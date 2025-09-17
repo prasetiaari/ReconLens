@@ -26,6 +26,7 @@ from .subdomains import (
     load_enrich,
 )
 from .subdomains import subdomains_page
+from ..services.wordlists import list_wordlists, get_wordlists_dir, resolve_wordlist
 
 # === Paths / Templating =====================================================
 
@@ -113,6 +114,7 @@ def _update_url_enrich_from_dirsearch(outputs_root: Path, scope: str, url: str, 
     data = _load_url_enrich(outputs_root, scope)
     rec = data.get(url) or {}
     rec.update({
+        "mode": "GET", #untuk saat ini inputan dari dirsearch otomatis diberi value mode = GET 
         "code": code,
         "size": size,
         "last_probe": datetime.now(timezone.utc).isoformat(),
@@ -123,6 +125,14 @@ def _update_url_enrich_from_dirsearch(outputs_root: Path, scope: str, url: str, 
     _save_url_enrich(outputs_root, scope, data)
     
 # === Helpers ================================================================
+def _safe_read_json(p: Path) -> dict:
+    try:
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
 def _host_no_port(netloc: str) -> str:
     """lowercase & drop :port from netloc"""
     if not netloc:
@@ -133,16 +143,24 @@ def _host_no_port(netloc: str) -> str:
     return h
 
 def _all_hosts_for_scope(outputs_root: Path, scope: str) -> list[str]:
-    """List kandidat host dari outputs/<scope>/subdomains.txt (kalau ada)."""
-    sub = outputs_root / scope / "subdomains.txt"
-    out = []
-    if sub.exists():
-        with sub.open("r", encoding="utf-8", errors="ignore") as f:
-            for ln in f:
-                s = ln.strip()
-                if s and not s.startswith("#"):
-                    out.append(s)
-    return out
+    """
+    Ambil SELURUH host dari outputs/<scope>/__cache/subdomains_enrich.json,
+    normalisasi ke host tanpa port. Tidak memfilter 'alive'.
+    """
+    cache = outputs_root / scope / "__cache" / "subdomains_enrich.json"
+    data = _safe_read_json(cache)
+    res: set[str] = set()
+    for k, rec in (data or {}).items():
+        final = rec.get("final_url") or k
+        u = final if "://" in str(final) else f"https://{final}"
+        try:
+            p = urlparse(u)
+            host = (p.netloc or p.path or "").split(":")[0].lower()
+            if host:
+                res.add(host)
+        except Exception:
+            pass
+    return sorted(res)
     
 def _fmt_size_human(v: Any) -> Optional[str]:
     """
@@ -530,7 +548,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     outputs_root = Path(settings.OUTPUTS_DIR)
     out_dir   = outputs_root / scope
     page_url  = f"/targets/{scope}/{mod}"
-
+    discovery_host_options = _all_hosts_for_scope(outputs_root, scope)
+    wordlists = list_wordlists()
     path = out_dir / f"{mod}.txt"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Module file not found")
@@ -746,6 +765,9 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "stats": stats,
         "stats_map": stats_map,
         "module_name": mod,
+        
+        "discovery_host_options": discovery_host_options,
+        "wordlists": wordlists,
     }
     return templates.TemplateResponse("module_generic.html", ctx)
 
@@ -764,7 +786,7 @@ def _python_exe() -> str:
     return which("python3") or which("python") or "python3"
 
 
-def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None = None, host: str | None = None,) -> list[str]:
+def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None = None, host: str | None = None, wordlists: str | None = None,) -> list[str]:
     """
     Build command to run in the repo root.
     - gau / waymore
@@ -842,13 +864,27 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
         return [
             "dirsearch",
             "-u", f"https://{host}",
+            "-w", f"{get_wordlists_dir()}/{wordlists}",
             "--format=simple",
             "--full-url",
             "--crawl", "0",
             "--random-agent",
             "--quiet",
         ]
-
+    if tool == "probe_paths":
+        if not host:
+            raise ValueError("dirsearch requires host")
+        # stdout cukup kaya; kita tetap regex URL di _run_job
+        # NB: jalankan dengan target full origin; kamu bisa ganti wordlist/opts sesuai preferensi
+        return [
+            "dirsearch",
+            "-u", f"https://{host}",
+            "--format=simple",
+            "--full-url",
+            "--crawl", "0",
+            "--random-agent",
+            "--quiet",
+        ]
     # --- passive subdomain collectors ---
     if tool == "subfinder":
         # output baris hostname; akan di-merge ke subdomains.txt
@@ -897,7 +933,8 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
 
         module = job.get("module")
         host   = job.get("host")
-        cmd = _tool_cmd(tool, scope, outputs_root, module=module, host=host)
+        wordlists   = job.get("wordlists")
+        cmd = _tool_cmd(tool, scope, outputs_root, module=module, host=host, wordlists=wordlists)
 
         # make sure ReconLens importable
         env = os.environ.copy()
@@ -1038,7 +1075,42 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
                 f"[summary] merged (aggregate) → {agg}  unique_added_agg={max(0, after_agg-before_agg)}  "
                 f"agg_total={after_agg}\n"
             )
+        elif tool == "probe_paths":
+            host = (job.get("host") or "").strip().lower()
 
+            # 1) simpan per-host: outputs/<scope>/dirsearch/<host>/
+            host_dir = out_dir / "dirsearch" / host
+            host_dir.mkdir(parents=True, exist_ok=True)
+            job_report = host_dir / f"{job_id}.txt"
+            try:
+                os.replace(tmp_urls, job_report)
+            except Exception:
+                pass
+
+            # 2) merge semua temuan host ini → found.txt
+            found = host_dir / "found.txt"
+            before_host = _read_text_lines(found)
+            _merge_urls(found, job_report)
+            after_host  = _read_text_lines(found)
+
+            # 3) merge seluruh temuan → dirsearch.txt
+            agg = out_dir / "dirsearch.txt"
+            before_agg = _read_text_lines(agg)
+            _merge_urls(agg, job_report)
+            after_agg  = _read_text_lines(agg)
+
+            # 4) update penanda waktu
+            _update_dirsearch_last(out_dir, host)
+            _update_last_scan(scope, "dirsearch")
+
+            await q.put(
+                f"[summary] captured={captured}  unique_added_host={max(0, after_host-before_host)}  "
+                f"host_total={after_host}\n"
+            )
+            await q.put(
+                f"[summary] merged (aggregate) → {agg}  unique_added_agg={max(0, after_agg-before_agg)}  "
+                f"agg_total={after_agg}\n"
+            )
         # signal selesai
         await q.put("event: status\ndata: done\n\n")
 
@@ -1059,7 +1131,7 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
 
 # === Job endpoints ===========================================================
 
-def _new_job(scope: str, tool: str, module: Optional[str] = None, host: Optional[str] = None) -> str:
+def _new_job(scope: str, tool: str, module: Optional[str] = None, host: Optional[str] = None, wordlists: Optional[str] = None) -> str:
     jid = os.urandom(12).hex()
     JOBS[jid] = {
         "queue": asyncio.Queue(),
@@ -1070,6 +1142,7 @@ def _new_job(scope: str, tool: str, module: Optional[str] = None, host: Optional
         "tool": tool,
         "module": module,
         "host": host,
+        "wordlists":wordlists
     }
     return jid
 
@@ -1079,9 +1152,11 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
     out_dir = OUTPUTS_DIR / scope
     urls_txt = str(out_dir / "urls.txt") if (out_dir / "urls.txt").exists() else ""
     
-    # ⬇️ ambil host dari query (penting untuk dirsearch)
-    host = request.query_params.get("host") or ""
-    
+    # untuk dirsearch
+    wl_name = request.query_params.get("wordlist") or ""
+    wl_path = resolve_wordlist(wl_name)
+    if wl_path is None:
+        wl_name = "small.txt"
     # last_scans untuk tampilan hint
     meta = _safe_json_load(out_dir / "meta.json")
     last_scans = meta.get("last_scans", {})
@@ -1094,6 +1169,7 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
         "urls_txt": urls_txt,
         "last_scans": last_scans,
         "host": host,
+        "wordlist":wl_name,
     })
 
 
@@ -1106,13 +1182,18 @@ async def collect_start(scope: str, tool: str, request: Request):
     # khusus dirsearch → validasi host
     if tool == "dirsearch":
         raw_host = request.query_params.get("host", "").strip()
+        wl_name = request.query_params.get("wordlist") or ""
+        wl_path = resolve_wordlist(wl_name)
+        if wl_path is None:
+            wl_name = "small.txt"
+            
         if not raw_host:
             return JSONResponse({"ok": False, "error": "host param is required for dirsearch"}, status_code=400)
         host = _normalize_host(raw_host)
         if not _host_in_scope(host, scope):
             return JSONResponse({"ok": False, "error": "host not in scope"}, status_code=400)
 
-        jid = _new_job(scope, tool, module=None, host=host)
+        jid = _new_job(scope, tool, module=None, host=host, wordlists=wl_name)
         out_dir = OUTPUTS_DIR / scope
         asyncio.create_task(_run_job(scope, tool, out_dir, jid))
         return JSONResponse({"ok": True, "job_id": jid})
