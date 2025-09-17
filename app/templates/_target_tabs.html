@@ -26,7 +26,10 @@
      class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='subdomains' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
     Subdomains
   </a>
-
+<a href="/targets/{{ scope_val }}/ai"
+   class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='ai' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+  AI
+</a>
   {% set dirsearch_stat = stats_map.get('dirsearch') %}
   {% if dirsearch_stat and (dirsearch_stat.lines or 0) > 0 %}
     <a href="/targets/{{ scope }}/dirsearch"
@@ -53,7 +56,7 @@
   {% set has_stats = stats is defined and stats %}
   <div class="relative" x-data="{open:false}">
     <button type="button"
-            class="ml-1 px-3 py-2 rounded-lg text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700"
+            class="ml-1 px-3 py-2 rounded-lg text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 "
             onclick="(function(btn){
               const menu = btn.nextElementSibling;
               menu.classList.toggle('hidden');
