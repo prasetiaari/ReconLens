@@ -1,0 +1,72 @@
+{# app/templates/ai_overview.html #}
+{% extends "base.html" %}
+{% block title %}AI · {{ scope }}{% endblock %}
+
+{% block content %}
+{% set active = "ai" %}
+{% include "_target_tabs.html" with context %}
+{% include "_ai_tabs.html" with context %}
+
+<div class="mt-2">
+  <h1 class="text-2xl font-semibold text-slate-900">AI Overview — {{ scope }}</h1>
+  <p class="mt-1 text-slate-600">Ringkasan cepat & tindakan umum untuk modul AI.</p>
+</div>
+
+<div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  <div class="p-4 rounded-xl bg-white border shadow">
+    <div class="text-sm uppercase tracking-wide text-rose-600">HIGH</div>
+    <div class="text-3xl font-semibold">{{ counts.HIGH|default(0) }}</div>
+    <a class="mt-2 inline-block text-sm text-blue-700 underline"
+       href="/targets/{{ scope }}/ai/insights?severity=HIGH">Lihat detail →</a>
+  </div>
+
+  <div class="p-4 rounded-xl bg-white border shadow">
+    <div class="text-sm uppercase tracking-wide text-amber-700">MEDIUM</div>
+    <div class="text-3xl font-semibold">{{ counts.MEDIUM|default(0) }}</div>
+    <a class="mt-2 inline-block text-sm text-blue-700 underline"
+       href="/targets/{{ scope }}/ai/insights?severity=MEDIUM">Lihat detail →</a>
+  </div>
+
+  <div class="p-4 rounded-xl bg-white border shadow">
+    <div class="text-sm uppercase tracking-wide text-emerald-700">LOW</div>
+    <div class="text-3xl font-semibold">{{ counts.LOW|default(0) }}</div>
+    <a class="mt-2 inline-block text-sm text-blue-700 underline"
+       href="/targets/{{ scope }}/ai/insights?severity=LOW">Lihat detail →</a>
+  </div>
+
+  <div class="p-4 rounded-xl bg-white border shadow">
+    <div class="text-sm uppercase tracking-wide text-slate-500">INFO</div>
+    <div class="text-3xl font-semibold">{{ counts.INFO|default(0) }}</div>
+    <a class="mt-2 inline-block text-sm text-blue-700 underline"
+       href="/targets/{{ scope }}/ai/insights?severity=INFO">Lihat detail →</a>
+  </div>
+</div>
+
+<div class="mt-6 p-4 rounded-xl bg-white border shadow">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-sm font-medium text-slate-800">Quick actions</div>
+      <div class="text-xs text-slate-500">Rules: {{ rules_version or 'seed' }}</div>
+    </div>
+    <div class="flex gap-2">
+      <a href="/targets/{{ scope }}/ai/apply_seed"
+         class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm"> (Re)apply seed rules </a>
+      <a href="/targets/{{ scope }}/ai/insights"
+         class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"> Lihat AI Insights </a>
+    </div>
+    <!-- Di bar tombol atas, samping (Re)apply seed rules -->
+    <a href="/targets/{{ scope }}/ai/preview_llm?k=200"
+       class="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200">
+      Preview with LLM (200)
+    </a>
+
+    <form method="post" action="/targets/{{ scope }}/ai/run_llm" class="inline">
+      <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+              onclick="return confirm('Run LLM on ~top-K candidates and overwrite AI results?')">
+        Apply LLM (save)
+      </button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

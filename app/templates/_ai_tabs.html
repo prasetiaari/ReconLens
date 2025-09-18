@@ -1,0 +1,26 @@
+{# app/templates/_ai_tabs.html #}
+{# Tab internal untuk section AI. Akan aktif otomatis berdasarkan context atau URL. #}
+
+{# Tentukan tab aktif:
+   - Prioritas 1: variabel 'active_ai_tab' dari context (overview|insights)
+   - Prioritas 2: fallback dari request.url.path
+#}
+{% set _path = (request.url.path if request and request.url else '') %}
+{% set _auto =
+    'insights' if _path.endswith('/ai/insights') else
+    ('overview' if _path.endswith('/ai') or _path.endswith('/ai/') else '') %}
+{% set tab = (active_ai_tab or _auto or 'overview') %}
+
+<div class="mt-3 mb-4 flex items-center gap-2">
+  <a href="/targets/{{ scope }}/ai"
+     class="px-3 py-2 rounded-lg text-sm
+            {{ 'bg-slate-900 text-white' if tab=='overview' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    Overview
+  </a>
+
+  <a href="/targets/{{ scope }}/ai/insights"
+     class="px-3 py-2 rounded-lg text-sm
+            {{ 'bg-slate-900 text-white' if tab=='insights' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    AI Insights
+  </a>
+</div>

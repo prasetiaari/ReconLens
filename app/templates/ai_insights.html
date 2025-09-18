@@ -1,0 +1,331 @@
+{# app/templates/ai.html (insights) #}
+{% extends "base.html" %}
+{% block title %}AI Insights · {{ scope }}{% endblock %}
+
+{% block content %}
+{% set active = "ai" %}
+{% include "_target_tabs.html" with context %}
+{% include "_ai_tabs.html" with context %}
+
+{# ==== URL dasar khusus halaman insights ==== #}
+{% set insights_url = '/targets/' ~ scope ~ '/ai/insights' %}
+{% set base_url = insights_url ~ '?page=1&page_size=' ~ (page_size|default(50)) %}
+{% set href_high   = base_url ~ '&severity=HIGH' %}
+{% set href_medium = base_url ~ '&severity=MEDIUM' %}
+{% set href_low    = base_url ~ '&severity=LOW' %}
+{% set href_info   = base_url ~ '&severity=INFO' %}
+{% set href_all    = base_url %}
+
+<div class="mt-4">
+  <h1 class="text-2xl font-semibold text-slate-900">
+    AI Insights for {{ scope }}
+  </h1>
+  <p class="mt-2 text-slate-600">
+    Klik <em>Generate Insights</em> untuk ringkasan heuristik.
+  </p>
+</div>
+
+<div class="mt-4 flex items-center gap-3">
+  {# Apply SEED rules (POST, reload after) #}
+  <button
+    class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800"
+    hx-post="/targets/{{ scope }}/ai/apply_rules?source=seed&demote_if_no_code=1&sample_limit=500"
+    hx-swap="none"
+    hx-on::after-request="window.location.reload()">
+    (Re)apply seed rules
+  </button>
+
+  {# Preview pakai modal (fetch JSON) #}
+  <button id="aiPreviewBtn"
+          class="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
+          data-url="/targets/{{ scope }}/ai/preview?limit=500">
+    Preview impact (500)
+  </button>
+
+  <div class="ml-auto text-sm text-slate-500">
+    Rules: {{ rules_version or 'seed' }}
+  </div>
+</div>
+
+{# === APPLY GROUP (Custom / AI / Hybrid / Generate) === #}
+<div class="flex items-center gap-2 mt-3">
+  <a href="/targets/{{ scope }}/download/__cache/custom_rules.json"
+     class="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-700 text-sm hover:bg-slate-100 border"
+     target="_blank" rel="noopener">
+    Edit Custom Rules
+  </a>
+
+  <button
+    class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+    hx-post="/targets/{{ scope }}/ai/apply_rules?source=custom&demote_if_no_code=1&sample_limit=500"
+    hx-swap="none"
+    hx-on::after-request="window.location.reload()">
+    Apply (Custom)
+  </button>
+
+  <button
+    class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700"
+    hx-post="/targets/{{ scope }}/ai/apply_rules?source=ai&demote_if_no_code=1&sample_limit=500"
+    hx-swap="none"
+    hx-on::after-request="window.location.reload()">
+    Apply (AI)
+  </button>
+
+  <button
+    class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:bg-black"
+    hx-post="/targets/{{ scope }}/ai/apply_rules?source=hybrid&demote_if_no_code=1&sample_limit=500"
+    hx-swap="none"
+    hx-on::after-request="window.location.reload()">
+    Apply (Hybrid)
+  </button>
+
+  <form
+    hx-post="/targets/{{ scope }}/ai/generate_rules?sample=100&model=llama3.2:3b&timeout=90"
+    hx-target="#ai-apply-result"
+    hx-swap="innerHTML"
+    class="inline">
+    <button type="submit"
+            class="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-sm hover:bg-purple-700">
+      Generate AI Rules
+    </button>
+  </form>
+
+  <span class="ml-2 text-xs text-slate-500">demote_if_no_code=on · sample=500</span>
+</div>
+
+<div id="ai-apply-result" class="mt-2 text-sm text-slate-600"></div>
+
+{# =========================
+   CARDS (klik untuk filter severity)
+   ========================= #}
+{% set sev = (severity or 'ALL') %}
+<div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-4 select-none">
+  <a href="{{ href_high }}"
+     class="block rounded-xl border p-4 bg-white shadow hover:shadow-md transition {{ 'ring-2 ring-rose-500' if sev=='HIGH' }}">
+    <div class="text-sm uppercase tracking-wide text-rose-600">HIGH</div>
+    <div class="text-3xl font-semibold">{{ counts.HIGH|default(0) }}</div>
+    <div class="mt-1 text-xs text-slate-500">Klik untuk filter HIGH</div>
+  </a>
+
+  <a href="{{ href_medium }}"
+     class="block rounded-xl border p-4 bg-white shadow hover:shadow-md transition {{ 'ring-2 ring-amber-500' if sev=='MEDIUM' }}">
+    <div class="text-sm uppercase tracking-wide text-amber-700">MEDIUM</div>
+    <div class="text-3xl font-semibold">{{ counts.MEDIUM|default(0) }}</div>
+    <div class="mt-1 text-xs text-slate-500">Klik untuk filter MEDIUM</div>
+  </a>
+
+  <a href="{{ href_low }}"
+     class="block rounded-xl border p-4 bg-white shadow hover:shadow-md transition {{ 'ring-2 ring-emerald-500' if sev=='LOW' }}">
+    <div class="text-sm uppercase tracking-wide text-emerald-700">LOW</div>
+    <div class="text-3xl font-semibold">{{ counts.LOW|default(0) }}</div>
+    <div class="mt-1 text-xs text-slate-500">Klik untuk filter LOW</div>
+  </a>
+
+  <a href="{{ href_info }}"
+     class="block rounded-xl border p-4 bg-white shadow hover:shadow-md transition {{ 'ring-2 ring-slate-400' if sev=='INFO' }}">
+    <div class="text-sm uppercase tracking-wide text-slate-500">INFO</div>
+    <div class="text-3xl font-semibold">{{ counts.INFO|default(0) }}</div>
+    <div class="mt-1 text-xs text-slate-500">Klik untuk filter INFO</div>
+  </a>
+</div>
+
+{# =========================
+   TABEL + PAGER
+   ========================= #}
+
+{% set extra_qs   = (sev!='ALL' and ('&severity=' ~ sev) or '') %}
+{% set pager_url  = insights_url %}
+{% set current_page = page %}
+{% set limit = page_size %}
+
+<div id="page" class="mt-4 space-y-4">
+  {# PAGER ATAS: siapkan variabel yang diharapkan _pager.html #}
+  {% set page_url = pager_url %}
+  {% set total_pages = total_pages %}
+  {% set current_page = current_page %}
+  {% set limit = limit %}
+  {% set extra_qs = extra_qs %}
+  {% include "_pager.html" %}
+
+  <div class="overflow-x-auto rounded border bg-white">
+    <table class="w-full table-fixed border-separate border-spacing-0 rounded-xl overflow-hidden">
+      <thead class="bg-slate-100 text-slate-700">
+        <tr class="text-sm">
+          <th class="px-4 py-2 text-left w-[60%]">URL</th>
+          <th class="px-4 py-2 text-left w-[10%]">Label</th>
+          <th class="px-4 py-2 text-left">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows and rows|length > 0 %}
+          {% for r in rows %}
+            <tr class="border-t">
+              <td class="px-4 py-2 font-mono text-[13px] break-words">
+                <a class="text-blue-700 underline" href="{{ r.url }}" target="_blank" rel="noopener">{{ r.url }}</a>
+              </td>
+              <td class="px-4 py-2">
+                {% set lab = (r.label or r.final_label or 'INFO') %}
+                {% if lab == 'HIGH' %}
+                  <span class="inline-block px-2 py-1 rounded bg-rose-50 text-rose-700 text-xs font-medium">HIGH</span>
+                {% elif lab == 'MEDIUM' %}
+                  <span class="inline-block px-2 py-1 rounded bg-amber-50 text-amber-700 text-xs font-medium">MEDIUM</span>
+                {% elif lab == 'LOW' %}
+                  <span class="inline-block px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-medium">LOW</span>
+                {% else %}
+                  <span class="inline-block px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-medium">INFO</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-2 text-slate-700">
+                {{ r.reason or r.final_reason or '-' }}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td class="px-4 py-6 text-slate-500" colspan="3">
+              No AI output parsed yet.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {# PAGER BAWAH (ulang set, karena scope block berbeda) #}
+  {% set page_url = pager_url %}
+  {% set total_pages = total_pages %}
+  {% set current_page = current_page %}
+  {% set limit = limit %}
+  {% set extra_qs = extra_qs %}
+  {% include "_pager.html" %}
+</div>
+
+{# === Enhance pager links so they swap #page and keep severity & URL === #}
+<script>
+(function () {
+  function enhancePager(scope) {
+    const root = scope || document;
+    const sev = {{ (severity or 'ALL')|tojson }};
+    root.querySelectorAll('#page .pager a[href]').forEach(a => {
+      const u = new URL(a.getAttribute('href'), window.location.origin);
+      if (sev && sev !== 'ALL') u.searchParams.set('severity', sev);
+      const finalHref = u.pathname + '?' + u.searchParams.toString();
+      a.setAttribute('href', finalHref);
+      a.setAttribute('hx-get', finalHref);
+      a.setAttribute('hx-target', '#page');
+      a.setAttribute('hx-select', '#page');
+      a.setAttribute('hx-push-url', 'true');
+    });
+  }
+  document.addEventListener('DOMContentLoaded', () => enhancePager(document));
+  document.body.addEventListener('htmx:afterSwap', (ev) => {
+    if (ev?.detail?.target?.id === 'page') enhancePager(ev.detail.target);
+  });
+})();
+</script>
+
+{# =========================
+   MODAL: Preview seed rules impact
+   ========================= #}
+<div id="aiPreviewModal" class="fixed inset-0 z-[60] hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <div class="relative mx-auto mt-24 w-[92%] max-w-3xl rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Preview seed rules impact</div>
+      <button id="aiPreviewClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+
+    <div class="p-4">
+      <div class="mb-2 flex items-center gap-3">
+        <label class="text-sm text-slate-600 inline-flex items-center gap-2">
+          <input id="aiPreviewPretty" type="checkbox" class="accent-slate-700">
+          Pretty-print
+        </label>
+        <span class="text-xs text-slate-500" id="aiPreviewMeta"></span>
+      </div>
+
+      <pre id="aiPreviewBody"
+           class="text-xs leading-5 p-3 rounded bg-slate-50 border border-slate-200 overflow-auto max-h-[70vh]">Loading…
+      </pre>
+    </div>
+
+    <div class="px-5 py-3 border-t flex justify-end">
+      <button id="aiPreviewClose2" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
+        Close
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const btn    = document.getElementById('aiPreviewBtn');
+  const modal  = document.getElementById('aiPreviewModal');
+  const close1 = document.getElementById('aiPreviewClose');
+  const close2 = document.getElementById('aiPreviewClose2');
+  const pretty = document.getElementById('aiPreviewPretty');
+  const bodyEl = document.getElementById('aiPreviewBody');
+  const metaEl = document.getElementById('aiPreviewMeta');
+
+  if (!btn || !modal) return;
+
+  let lastJson = null;
+
+  function open() {
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden','false');
+  }
+  function close() {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden','true');
+  }
+  function render(prettyPrint) {
+    if (!lastJson) return;
+    try {
+      const text = prettyPrint ? JSON.stringify(lastJson, null, 2) : JSON.stringify(lastJson);
+      bodyEl.textContent = text;
+      const s = lastJson.summary || {};
+      const cnt = (s.counts ? `HIGH:${s.counts.HIGH||0} • MEDIUM:${s.counts.MEDIUM||0} • LOW:${s.counts.LOW||0} • INFO:${s.counts.INFO||0}` : '');
+      metaEl.textContent = [
+        s.rules_version ? `rules: ${s.rules_version}` : '',
+        s.limit ? `limit: ${s.limit}` : '',
+        cnt
+      ].filter(Boolean).join(' · ');
+    } catch (e) {
+      bodyEl.textContent = 'Failed to render preview: ' + (e?.message || e);
+    }
+  }
+
+  btn.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    open();
+    bodyEl.textContent = 'Loading…';
+    metaEl.textContent  = '';
+    lastJson = null;
+
+    try {
+      const url = btn.getAttribute('data-url');
+      const resp = await fetch(url, { headers: { 'Accept': 'application/json' }});
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      lastJson = await resp.json();
+      render(pretty.checked);
+    } catch (err) {
+      bodyEl.textContent = 'Error fetching preview: ' + (err?.message || err);
+    }
+  });
+
+  pretty.addEventListener('change', ()=> render(pretty.checked));
+
+  close1.addEventListener('click', close);
+  close2.addEventListener('click', close);
+  modal.addEventListener('click', (ev)=>{
+    if (ev.target === modal || ev.target.classList?.contains('bg-black/40')) close();
+  });
+  document.addEventListener('keydown', (ev)=>{
+    if (ev.key === 'Escape' && !modal.classList.contains('hidden')) close();
+  });
+})();
+</script>
+
+{% endblock %}

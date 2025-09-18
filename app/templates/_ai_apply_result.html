@@ -1,0 +1,27 @@
+{# app/templates/_ai_apply_result.html #}
+{% set s = summary or {} %}
+{% set c = (s.counts or {}) %}
+<div class="p-3 rounded-lg border bg-white text-sm shadow-sm">
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <div class="font-medium text-slate-800">
+        Rules applied ({{ s.rules_version or 'n/a' }})
+      </div>
+      <div class="mt-1 text-slate-600">
+        Classified: <span class="font-medium">{{ s.total_classified or 0 }}</span>
+        <span class="ml-2">HIGH <span class="font-medium text-rose-600">{{ c.HIGH or 0 }}</span></span>
+        <span class="ml-2">MED <span class="font-medium text-amber-600">{{ c.MEDIUM or 0 }}</span></span>
+        <span class="ml-2">LOW <span class="font-medium text-emerald-600">{{ c.LOW or 0 }}</span></span>
+        <span class="ml-2">INFO <span class="font-medium text-slate-600">{{ c.INFO or 0 }}</span></span>
+      </div>
+      {% if s.note %}
+        <div class="mt-1 text-xs text-slate-500">{{ s.note }}</div>
+      {% endif %}
+    </div>
+
+    <a href="/targets/{{ scope }}/ai"
+       class="px-2 py-1 rounded bg-slate-900 text-white text-xs hover:bg-black">
+      Refresh table
+    </a>
+  </div>
+</div>

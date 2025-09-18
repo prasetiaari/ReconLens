@@ -19,18 +19,21 @@
         {% endfor %}
       </select>
       <input type="hidden" name="page" value="{{ p }}">
-      {# bawa filter lain (q, host, method, etc.) via hidden; htmx juga akan include #filters #}
+      {# carry extra filters #}
       {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       {% if host_filter %}<input type="hidden" name="host" value="{{ host_filter }}">{% endif %}
       {% if method_filter and method_filter|lower not in ['(any)','any'] %}
         <input type="hidden" name="method" value="{{ method_filter }}">
+      {% endif %}
+      {# ⬇️ NEW: keep severity if the view provides it #}
+      {% if severity is defined and severity and severity != 'ALL' %}
+        <input type="hidden" name="severity" value="{{ severity }}">
       {% endif %}
     </form>
   </div>
 
   <!-- numeric pager -->
   <div class="flex items-center gap-2">
-    {# Prev #}
     {% set prev_href = page_url ~ '?page=' ~ (p-1) ~ '&page_size=' ~ ps ~ xq %}
     <a href="{{ prev_href }}"
        class="px-3 py-1 rounded-md border transition
@@ -38,7 +41,6 @@
       ‹ Prev
     </a>
 
-    {# number window (7 buttons window) #}
     {% set window = 7 %}
     {% set half = (window // 2) %}
     {% set start = p - half %}
@@ -47,13 +49,11 @@
     {% if end > tp %}{% set end = tp %}{% set start = tp - window + 1 %}{% endif %}
     {% if start < 1 %}{% set start = 1 %}{% endif %}
 
-    {# jump to 1 + ellipsis #}
     {% if start > 1 %}
       <a href="{{ page_url }}?page=1&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">1</a>
       {% if start > 2 %}<span class="px-2 text-slate-400">…</span>{% endif %}
     {% endif %}
 
-    {# main range #}
     {% for n in range(start, end + 1) %}
       {% set href = page_url ~ '?page=' ~ n ~ '&page_size=' ~ ps ~ xq %}
       {% if n == p %}
@@ -63,13 +63,11 @@
       {% endif %}
     {% endfor %}
 
-    {# ellipsis + jump to last #}
     {% if end < tp %}
       {% if end < tp-1 %}<span class="px-2 text-slate-400">…</span>{% endif %}
       <a href="{{ page_url }}?page={{ tp }}&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">{{ tp }}</a>
     {% endif %}
 
-    {# Next #}
     {% set next_href = page_url ~ '?page=' ~ (p+1) ~ '&page_size=' ~ ps ~ xq %}
     <a href="{{ next_href }}"
        class="px-3 py-1 rounded-md border transition
@@ -78,6 +76,5 @@
     </a>
   </div>
 
-  <!-- page info -->
   <div class="text-slate-500">Page {{ p }} / {{ tp }}</div>
 </div>
