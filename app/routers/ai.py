@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Dict
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query, Form, Body
 from fastapi.responses import HTMLResponse, JSONResponse
 from collections import Counter
 from urllib.parse import urlparse
@@ -16,6 +16,15 @@ from ..services.ai_analyzer import run_ai_classification  # if routers and servi
 #hapus filenya from ..services.ai_rules import apply_rules, preview_rules
 from pathlib import Path
 from ..services.ai_apply import apply_rules, ApplyOptions
+from ..services.ai_command import parse_prompt_to_plan, append_history, read_history
+#from ..services.ai_jobs import create_job, get_job_status
+#from app.routers import ai_commands as ai_commands_router  # NEW
+from ..services.ai_jobs import (
+    save_last_plan, load_last_plan, run_plan_now, _job_status_path
+)
+from ..services.ai_jobs import set_current_plan, get_current_plan, clear_current_plan  # NEW
+from ..tools.registry import get_tool, register_tool, run_httprobe
+
 from markupsafe import escape
 
 from ..services.llm_provider import OllamaProvider
@@ -29,7 +38,7 @@ except Exception:
 
 
 router = APIRouter()
-
+register_tool("httprobe", {"run": run_httprobe, "desc":"..."})
 
 def _safe_json(path: Path) -> Dict:
     try:
@@ -386,3 +395,245 @@ async def ai_generate_insights(request: Request, scope: str):
     })
     # return partial template (panel)
     return templates.TemplateResponse("_ai_insights_panel.html", ctx)
+    
+@router.get("/{scope}/ai/command", response_class=HTMLResponse)
+async def ai_command_page(request: Request, scope: str):
+    settings  = get_settings(request)
+    templates = get_templates(request)
+
+    ctx = {
+        "request": request,
+        "scope": scope,
+        "ai_active": "command",       # untuk menyalakan tab
+        "page_title": "AI Command",
+    }
+    return templates.TemplateResponse("ai_command.html", ctx)
+
+
+# (Opsional) endpoint eksekusi command via HTMX (gunakan parser sederhana dulu)
+@router.post("/{scope}/ai/command_run", response_class=HTMLResponse)
+async def ai_command_run(request: Request, scope: str):
+    settings  = get_settings(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+
+    plan = get_current_plan(outputs_root, scope)
+    if not plan or not plan.get("actions"):
+        return HTMLResponse("<div class='text-sm text-rose-600'>No plan to run. Parse a prompt first.</div>", status_code=400)
+
+    # TODO: jalankan aksi benerannya; untuk saat ini stub sukses
+    # (opsional) clear plan setelah dijalankan
+    # clear_current_plan(outputs_root, scope)
+
+    # ringkas hasil untuk ditaruh di #ai-run-result (HTMX)
+    actions = plan.get("actions", [])
+    html = ["<div class='text-sm'>Plan accepted:</div>", "<ul class='list-disc ml-5 text-sm'>"]
+    for a in actions:
+        html.append(f"<li>✅ <code>{a.get('tool')}</code></li>")
+    html.append("</ul>")
+    return HTMLResponse("".join(html))
+
+@router.get("/{scope}/ai/command")
+async def ai_command_page(request: Request, scope: str):
+    settings = get_settings(request)
+    templates = get_templates(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+    history = read_history(outputs_root, scope)
+    return templates.TemplateResponse("ai_command.html", {"request": request, "scope": scope, "history": history})
+
+@router.post("/{scope}/ai/command_parse", response_class=HTMLResponse)
+@router.post("/{scope}/ai/command/parse", response_class=HTMLResponse)
+async def ai_command_parse(request: Request, scope: str):
+    settings  = get_settings(request)
+    templates = get_templates(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+
+    # HTMX form = x-www-form-urlencoded
+    form = await request.form()
+    prompt = (form.get("prompt") or "").strip()
+    model  = (form.get("model")  or "llama3.2:3b").strip()
+    intent = (form.get("intent") or "auto").strip()
+
+    if not prompt:
+        return HTMLResponse("<div class='text-sm text-rose-600'>Prompt kosong.</div>", status_code=400)
+
+    # --- SIMPLE PLANNER (placeholder) ---
+    actions = []
+    low = prompt.lower()
+    if "subdomain" in low and ("aktif" in low or "alive" in low or "up" in low):
+        actions.append({"tool": "list_active_subdomains", "args": {}})
+    elif "dirsearch" in low or "scan dir" in low:
+        actions.append({"tool": "dirsearch", "args": {"wordlist": "medium", "host": "__all__"}})
+    else:
+        # fallback: minta analisis
+        actions.append({"tool": "analyze_urls", "args": {"limit": 200}})
+
+    plan = {
+        "scope": scope,
+        "model": model,
+        "intent": intent,
+        "prompt": prompt,
+        "actions": actions,
+    }
+
+    # SIMPAN plan ke cache
+    set_current_plan(outputs_root, scope, plan)
+
+    # Kembalikan preview sederhana (HTML minimal); kalau mau JSON, return JSONResponse(plan)
+    # ai_command.html sudah bisa "pretty render" kalau kontennya JSON, jadi aman juga.
+    try:
+        return templates.TemplateResponse(
+            "_plan_preview.html",
+            {"request": request, "plan": plan}
+        )
+    except Exception:
+        # fallback: JSON supaya client-side pretty printer jalan
+        from fastapi.responses import JSONResponse
+        return JSONResponse(plan)
+
+
+@router.post("/{scope}/ai/command/confirm")
+async def ai_command_confirm(request: Request, scope: str):
+    body = await request.json()
+    plan = body.get("plan")
+    if not plan:
+        raise HTTPException(status_code=400, detail="no plan")
+    settings = get_settings(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+    # create job
+    job_id = create_job(outputs_root, scope, plan, get_tool)
+    return {"ok": True, "job_id": job_id, "status_url": f"/targets/{scope}/jobs/{job_id}"}
+
+
+@router.get("/{scope}/jobs/{job_id}")
+async def job_status(request: Request, scope: str, job_id: str):
+    settings = get_settings(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+    st = get_job_status(outputs_root, scope, job_id)
+    return st
+'''
+@router.post("/{scope}/ai/command_run", response_class=HTMLResponse)
+async def ai_command_run(request: Request, scope: str):
+    settings = get_settings(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+
+    # ambil plan dari cache (hasil parse terakhir)
+    plan = load_last_plan(outputs_root, scope)
+    if not plan:
+        # fallback: kalau user kirim plan lewat body (opsional)
+        try:
+            body = await request.json()
+            plan = body if isinstance(body, dict) else None
+        except Exception:
+            plan = None
+
+    if not plan:
+        return HTMLResponse(
+            "<div class='text-sm text-rose-600'>No plan to run. Parse a prompt first.</div>",
+            status_code=400,
+        )
+
+    state = run_plan_now(outputs_root, scope, plan)
+
+    # render ringkas hasil
+    html = [
+        "<div class='space-y-2'>",
+        "<div class='text-sm text-slate-600'>Job finished.</div>",
+        "<div class='text-sm font-medium'>Actions:</div>",
+        "<ul class='list-disc ml-5 text-sm'>",
+    ]
+    for a in state.get("actions", []):
+        ok = a["result"].get("ok")
+        icon = "✅" if ok else "❌"
+        html.append(f"<li>{icon} <code>{a['tool']}</code></li>")
+    html += ["</ul>", "</div>"]
+    return HTMLResponse("".join(html), status_code=200)
+'''
+
+@router.get("/{scope}/ai/job_status", response_class=JSONResponse)
+async def ai_job_status(request: Request, scope: str):
+    settings = get_settings(request)
+    outputs_root = Path(settings.OUTPUTS_DIR)
+    p = _job_status_path(outputs_root, scope)
+    if not p.exists():
+        return JSONResponse({"ok": False, "status": "idle", "logs": []})
+    try:
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        
+def _cache_dir(outputs_root: Path, scope: str) -> Path:
+    d = outputs_root / scope / "__cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _plan_path(outputs_root: Path, scope: str) -> Path:
+    return _cache_dir(outputs_root, scope) / "ai_cmd_plan.json"
+
+# --- 1) PARSE: terima prompt dari form, buat plan sederhana, simpan ---
+'''@router.post("/{scope}/ai/command_parse", response_class=HTMLResponse)
+
+async def ai_command_parse(request: Request, scope: str):
+    settings = request.state.settings  # asumsi deps seperti modul lain
+    outputs_root = Path(settings.OUTPUTS_DIR)
+
+    # Ambil dari FORM, bukan JSON:
+    form = await request.form()
+    prompt = (form.get("prompt") or "").strip()
+    if not prompt:
+        return HTMLResponse("<div class='text-sm text-rose-600'>Prompt kosong.</div>", status_code=400)
+
+    # Contoh plan minimal (ganti nanti dengan LLM-planner)
+    plan = {
+        "prompt": prompt,
+        "intent": "auto",
+        "actions": [
+            {"tool": "analyze", "args": {"target": scope, "query": prompt}}
+        ],
+        "ts": int(time.time()),
+    }
+
+    _plan_path(outputs_root, scope).write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Kembalikan preview HTML singkat (ditaruh ke #ai-plan-preview)
+    pretty = json.dumps(plan, ensure_ascii=False, indent=2)
+    html = f"""
+    <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">AI PLAN</div>
+    <pre class="text-xs leading-5 p-3 rounded bg-slate-50 border border-slate-200 max-h-[45vh] overflow-auto">{pretty}</pre>
+    """
+    return HTMLResponse(html)
+'''
+# --- 2) RUN: baca plan dari cache, jalankan (mock), update log ---
+@router.post("/{scope}/ai/command_run", response_class=HTMLResponse)
+async def ai_command_run(request: Request, scope: str):
+    settings = request.state.settings
+    outputs_root = Path(settings.OUTPUTS_DIR)
+
+    plan_file = _plan_path(outputs_root, scope)
+    if not plan_file.exists():
+        return HTMLResponse("<div class='text-sm text-rose-600'>No plan to run. Parse a prompt first.</div>", status_code=400)
+
+    plan = json.loads(plan_file.read_text(encoding="utf-8"))
+    # TODO: dispatch ke ai_jobs.py sesuai plan["actions"]
+    # Di sini kita tulis log sederhana
+    logs_path = _cache_dir(outputs_root, scope) / "ai_cmd_logs.jsonl"
+    with logs_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": int(time.time()), "msg": f"Running plan: {plan.get('prompt','')}"}, ensure_ascii=False) + "\n")
+
+    return HTMLResponse("<div class='text-sm text-emerald-700'>Plan started. Lihat LOGS di bawah.</div>")
+
+# --- 3) STATUS: untuk tombol Refresh Status ---
+@router.get("/{scope}/ai/job_status", response_class=JSONResponse)
+async def ai_job_status(request: Request, scope: str):
+    settings = request.state.settings
+    outputs_root = Path(settings.OUTPUTS_DIR)
+    logs_path = _cache_dir(outputs_root, scope) / "ai_cmd_logs.jsonl"
+
+    logs = []
+    if logs_path.exists():
+        with logs_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    logs.append(json.loads(line))
+                except Exception:
+                    pass
+    return JSONResponse({"status": "idle" if not logs else "ok", "logs": logs[-200:]})

@@ -1,0 +1,187 @@
+{# app/templates/ai_command.html #}
+{% extends "base.html" %}
+{% block title %}AI Command · {{ scope }}{% endblock %}
+
+{% block content %}
+{% set active = "ai" %}
+{% include "_target_tabs.html" with context %}
+{% include "_ai_tabs.html" with context %}
+
+{# Fallback: kalau thread_id kosong, ambil dari query string agar form tidak ikut-ikutan nonaktif #}
+{% set active_thread = thread_id or request.query_params.get('thread') %}
+
+<div class="mt-4">
+  <h1 class="text-2xl font-semibold text-slate-900">
+    AI Command for {{ scope }}
+  </h1>
+  <p class="mt-2 text-slate-600">
+    Kirim prompt ke AI untuk membuat plan & menjalankan tools. Multi-thread dengan history.
+  </p>
+</div>
+
+{# =======================
+   LAYOUT: Sidebar (threads) + Main
+   ======================= #}
+<div class="mt-4 grid grid-cols-12 gap-4">
+  {# -------- Sidebar: Threads -------- #}
+  <aside class="col-span-12 md:col-span-3">
+    <div class="rounded-lg border bg-white p-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs uppercase tracking-wide text-slate-500">Threads</div>
+
+        {# New Thread -> POST, server balas JSON dan JS akan redirect ke ?thread=<id> #}
+        <div class="inline-flex items-center gap-2" title="Create new thread">
+          <input id="new-thread-title" class="input py-1 px-2 text-sm" placeholder="new thread title…"/>
+          <button
+            id="btn-new-thread"
+            class="px-2 py-1 rounded bg-slate-900 text-white text-xs hover:bg-black"
+            hx-post="/targets/{{ scope }}/ai/command/thread"
+            hx-vals='js:{"title": document.getElementById("new-thread-title").value}'
+            hx-target="#threads-list"
+            hx-swap="outerHTML">
+            New
+          </button>
+        </div>
+      </div>
+
+      {# daftar thread selalu fresh #}
+      <div id="threads-list"
+           hx-get="/targets/{{ scope }}/ai/command/thread_list"
+           hx-trigger="load"
+           hx-swap="outerHTML">
+        <div class="text-sm text-slate-500">Loading…</div>
+      </div>
+    </div>
+  </aside>
+
+  {# -------- Main -------- #}
+  <main class="col-span-12 md:col-span-9">
+    <div class="rounded-lg border bg-white">
+      <div class="px-4 py-3 border-b flex items-center gap-4">
+        <div class="text-sm">
+          <span class="text-slate-500">Model</span>
+          <select id="ai-model" class="input py-1 px-2 ml-1 align-middle">
+            <option value="llama3.2:3b">llama3.2:3b</option>
+            <option value="llama3.1:8b">llama3.1:8b</option>
+            <option value="qwen2.5:3b">qwen2.5:3b</option>
+          </select>
+        </div>
+        <div class="text-sm">
+          <span class="text-slate-500">Intent</span>
+          <select id="ai-intent" class="input py-1 px-2 ml-1 align-middle">
+            <option value="auto" selected>auto</option>
+            <option value="analyze">analyze</option>
+            <option value="enumerate">enumerate</option>
+            <option value="scan">scan</option>
+          </select>
+        </div>
+
+        <div class="ml-auto text-sm text-slate-500">
+          Thread:
+          <span class="font-mono">{{ active_thread or "–" }}</span>
+        </div>
+      </div>
+
+      <div class="p-4">
+        {# Prompt form -> parse ke plan (thread wajib) #}
+        <form
+          id="aiPlanForm"
+          hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/parse"
+          hx-target="#ai-conversation"
+          hx-swap="innerHTML"
+          onsubmit="attachPlanFormParams(this);"
+          class="space-y-3"
+        >
+          <textarea name="prompt" rows="3" class="w-full input"
+                    placeholder="Tulis perintah… misal: tampilkan seluruh subdomain yg aktif"
+                    {{ '' if active_thread else 'disabled' }} required></textarea>
+
+          <div class="flex items-center gap-2">
+            <button type="submit"
+                    class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+                    {{ '' if active_thread else 'disabled' }}>
+              Create Plan
+            </button>
+
+            <button type="button"
+                    id="aiRunBtn"
+                    class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+                    {{ '' if active_thread else 'disabled' }}
+                    hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
+                    hx-target="#ai-conversation"
+                    hx-swap="innerHTML">
+              ▶ Run Plan
+            </button>
+          </div>
+
+          {# hidden fields diisi dari dropdown di header #}
+          <input type="hidden" name="model" id="ai-model-hidden" value="llama3.2:3b" />
+          <input type="hidden" name="intent" id="ai-intent-hidden" value="auto" />
+        </form>
+
+        {% if not active_thread %}
+          <div class="mt-2 text-xs text-amber-600">
+            Buat/ pilih thread terlebih dulu di panel kiri untuk mengaktifkan form.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Conversation / messages panel #}
+    <div class="mt-4 rounded-lg border bg-white">
+      <div class="px-4 py-3 border-b flex items-center justify-between">
+        <div class="text-sm font-medium text-slate-700">Conversation</div>
+        {% if active_thread %}
+          <a class="btn text-sm px-3 py-1 rounded border hover:bg-slate-50"
+             href="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+             hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+             hx-target="#ai-conversation"
+             hx-swap="innerHTML">Refresh</a>
+        {% endif %}
+      </div>
+      <div id="ai-conversation" class="p-4">
+        {% if messages and messages|length %}
+          {% include "_ai_cmd_messages.html" with context %}
+        {% else %}
+          <div class="text-sm text-slate-500">No messages yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </main>
+</div>
+
+{# =======================
+   Helpers
+   ======================= #}
+<script>
+  // Isi hidden fields model/intent saat submit "Create Plan"
+  function attachPlanFormParams(form) {
+    const m = document.getElementById('ai-model').value;
+    const i = document.getElementById('ai-intent').value;
+    document.getElementById('ai-model-hidden').value = m;
+    document.getElementById('ai-intent-hidden').value = i;
+  }
+
+  (function () {
+    // Enter pada input judul => klik New
+    const inp = document.getElementById('new-thread-title');
+    const btn = document.getElementById('btn-new-thread');
+    inp?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); btn?.click(); }});
+
+    // Setelah POST new thread: server kirim JSON {ok, thread_id}. Redirect ke ?thread=...
+    document.body.addEventListener('htmx:afterRequest', (ev)=>{
+      const elt = ev.target;
+      if (!elt || elt.id !== 'btn-new-thread') return;
+      try {
+        const xhr = ev.detail.xhr;
+        const j = JSON.parse(xhr.responseText);
+        if (j && j.ok && j.thread_id) {
+          const url = new URL(location.href);
+          url.searchParams.set('thread', j.thread_id);
+          location.href = url.pathname + '?' + url.searchParams.toString();
+        }
+      } catch(_) {}
+    });
+  })();
+</script>
+{% endblock %}

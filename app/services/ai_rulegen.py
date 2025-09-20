@@ -10,6 +10,7 @@ import requests
 import collections
 
 
+
 DEFAULT_MODEL = "llama3.2:3b"   # lebih ringan untuk cepat generate rules
 DEFAULT_TIMEOUT = 60            # detik
 
@@ -345,4 +346,38 @@ def generate_rules_from_samples(
         "rules_count": len(all_rules),
         "path": str(out_path),
         "attempts": attempts,
+    }
+
+def parse_prompt_to_plan(
+    prompt: str,
+    scope: str,
+    model: str = "llama3.2:3b",
+    intent: str = "auto",
+) -> Dict[str, Any]:
+    """
+    Versi minimal: map prompt -> actions berbasis heuristik.
+    Nanti tinggal diganti untuk panggil LLM & format plan yang sama.
+    """
+    text = (prompt or "").lower()
+
+    actions = []
+
+    # contoh mapping sederhana
+    if any(k in text for k in ["subdomain", "sub domain", "aktif", "alive"]):
+        actions.append({"tool": "subdomains_alive", "args": {}})
+
+    # kalau user minta 'analyze' / 'ringkas'
+    if not actions and any(k in text for k in ["analisa", "analyze", "ringkas", "summary"]):
+        actions.append({"tool": "analyze", "args": {}})
+
+    # default: fallback analyze
+    if not actions:
+        actions.append({"tool": "analyze", "args": {}})
+
+    return {
+        "intent": intent or "auto",
+        "prompt": prompt,
+        "scope": scope,
+        "model": model,
+        "actions": actions,
     }
