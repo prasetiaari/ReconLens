@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}About · ReconLens{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto py-12">
+  <h1 class="text-2xl font-semibold mb-4">About ReconLens</h1>
+
+  <p class="text-slate-700 mb-4">
+    ReconLens was created by <strong>Prasetia Ari</strong>, with continuous support from ChatGPT-5 
+    throughout the development process. The tool is inspired by <em>gau-expose</em>, with the original 
+    idea of building a more user-friendly UI version so reconnaissance work is not limited to CLI or scripts.
+  </p>
+
+  <p class="text-slate-700 mb-4">
+    Development started while participating in the <strong>Tangsel Bug Bounty 2025</strong> program. 
+    Because of that, many features in ReconLens are directly derived from real bug hunting needs 
+    and have been tested in actual bounty scenarios.
+  </p>
+
+  <h2 class="mt-6 font-medium">Our Goals</h2>
+  <ul class="list-disc ml-6 text-slate-700">
+    <li><strong>Simplify reconnaissance workflows</strong> — so security researchers don’t need to constantly juggle multiple scripts manually.</li>
+    <li><strong>Provide a practical dashboard</strong> — to visualize and analyze recon results more effectively.</li>
+    <li><strong>Pave the way for AI integration</strong> — early experiments have already been implemented, and further development will continue.</li>
+  </ul>
+</div>
+{% endblock %}

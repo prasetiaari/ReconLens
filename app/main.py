@@ -33,6 +33,7 @@ from app.routers.overview_pages import router as overview_pages_router
 from app.routers.overview_status_codes import router as overview_status_codes_router
 
 # NEW generic viewer
+from app.routers import pages as pages_router
 from app.routers import viewer as viewer_router
 
 def create_app() -> FastAPI:
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(graphs_api_router)
     app.include_router(graphs_pages_router)
     app.include_router(targets_api_router.router)
+    app.include_router(pages_router.router)
     
     # Alias: /targets/{scope}/open_redirect -> /targets/{scope}/module/open_redirect
     alias_router = APIRouter()
