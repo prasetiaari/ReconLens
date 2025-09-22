@@ -799,11 +799,11 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
     out_dir = outputs_root / scope
 
     if tool == "gau":
-        return ["gau", "--verbose", scope]
+        return ["gau", "--verbose", "--o", str(out_dir / "urls.txt"), scope]
 
     if tool == "waymore":
-        return ["waymore", "-i", scope, "-o", "-"]
-
+        return ["waymore", "-i", scope, "-mode","U","-oU", str(out_dir / "urls.txt"),"-v"]
+        
     if tool == "build":
         return [
             py_exe, "-m", "ReconLens",
@@ -1261,7 +1261,7 @@ async def download(scope: str, fname: str):
     return Response(
         content=p.read_bytes(),
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{p.name}"'},
+        headers={"Content-Disposition": f'attachment; filename="{scope}_{p.name}"'},
     )
 
 # --- Convenience aliases ----------------------------------------------------
