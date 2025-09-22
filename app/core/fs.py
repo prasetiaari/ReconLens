@@ -1,13 +1,21 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Iterator
-import math
+import math, re
 _LINECOUNT_CACHE = {}
+
+DOMAIN_RE = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+)
 
 def list_subdirs(p: Path) -> list[str]:
     if not p.exists():
         return []
-    return sorted([x.name for x in p.iterdir() if x.is_dir()])
+    return sorted([
+        x.name
+        for x in p.iterdir()
+        if x.is_dir() and DOMAIN_RE.match(x.name)
+    ])
 
 def safe_join(root: Path, *parts: str) -> Path:
     p = (root.joinpath(*parts)).resolve()
