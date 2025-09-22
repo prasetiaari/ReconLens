@@ -1,0 +1,50 @@
+{# Delete confirmation modal. Rendered INTO #modal-root via innerHTML #}
+<div class="fixed inset-0 z-[60]">
+  <!-- overlay -->
+  <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
+
+  <div class="relative mx-auto mt-28 w-[92%] max-w-lg rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Delete target</div>
+      <button class="text-slate-400 hover:text-slate-600"
+              aria-label="Close"
+              onclick="document.getElementById('modal-root').innerHTML=''">✕</button>
+    </div>
+
+    <div class="p-5 space-y-3 text-sm">
+      <p class="text-slate-700">
+        You are about to <span class="font-semibold text-rose-700">permanently delete</span>
+        the target <code class="font-mono">{{ scope }}</code>. This action cannot be undone.
+      </p>
+      <ul class="list-disc ml-5 text-slate-600">
+        <li>All data under this target will be removed from disk.</li>
+        <li>Running jobs (if any) may fail immediately.</li>
+      </ul>
+      <p class="text-slate-700">
+        Type the target name to confirm: <code class="font-mono">{{ scope }}</code>
+      </p>
+
+      <form
+        hx-post="/targets/{{ scope }}/delete/confirmed"
+        hx-target="#modal-root"
+        hx-swap="innerHTML"
+        class="space-y-2"
+      >
+        <input name="confirm" class="input w-full" placeholder="{{ scope }}" autocomplete="off" required>
+        <div class="flex items-center justify-end gap-2">
+          <button type="button"
+                  class="px-3 py-2 rounded-lg border text-slate-700 hover:bg-slate-50"
+                  onclick="document.getElementById('modal-root').innerHTML=''">Cancel</button>
+          <button type="submit"
+                  class="px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700">
+            Delete permanently
+          </button>
+        </div>
+      </form>
+
+      <div class="text-xs text-slate-500">
+        Note: there is no trash/restore when using hard delete.
+      </div>
+    </div>
+  </div>
+</div>

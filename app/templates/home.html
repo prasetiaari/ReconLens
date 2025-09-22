@@ -14,15 +14,28 @@
 {% if scopes %}
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for s in scopes %}
-      <a href="/targets/{{ s }}" class="block p-4 rounded-xl bg-white shadow hover:shadow-md transition">
-        <div class="text-lg font-medium">{{ s }}</div>
-        <div class="text-sm text-slate-500">open report</div>
-      </a>
+      <div class="rounded-xl bg-white shadow hover:shadow-md transition p-4" data-scope="{{ s }}">
+        <div class="flex items-center justify-between">
+          <a href="/targets/{{ s }}" class="text-lg font-medium hover:underline">{{ s }}</a>
+          <button
+            aria-label="Delete"
+            class="rounded-md border px-2 py-1 text-[12px] text-slate-600 hover:bg-rose-50 hover:text-rose-700"
+            hx-get="/targets/{{ s }}/delete/confirmation"
+            hx-target="#modal-root"
+            hx-swap="innerHTML">
+            del
+          </button>
+        </div>
+        <a href="/targets/{{ s }}" class="text-sm text-slate-500 hover:underline">open report</a>
+      </div>
     {% endfor %}
   </div>
 {% else %}
   <p class="text-slate-600">No targets found in <code>outputs/</code>.</p>
 {% endif %}
+
+<!-- Stable modal mount (never removed) -->
+<div id="modal-root"></div>
 
 <!-- Modal: Add Target -->
 <div id="addTargetModal"
@@ -50,13 +63,13 @@
                required
                inputmode="url"
                pattern="^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$"
-               title="Masukkan domain valid, mis. example.com atau sub.example.co.id">
+               title="Enter a valid domain, e.g. example.com or sub.example.co.id">
         <p class="text-xs text-slate-500 mt-1">
-          Hanya domain (tanpa http://). Subdomain diperbolehkan.
+          Domain only (no http://). Subdomains are allowed.
         </p>
       </div>
 
-      <div id="addTargetErrors" class="text-sm text-red-600"></div>
+      <div id="addTargetErrors" class="text-sm text-rose-600"></div>
 
       <div class="flex items-center justify-end gap-2 pt-2 border-t">
         <button type="button" class="btn"
@@ -65,11 +78,9 @@
       </div>
     </form>
 
-    <!-- small helper: auto-redirect if backend sets HX-Redirect -->
     <script>
       function sanitizeScopeAndSubmit(ev){
         const inp = document.getElementById('scopeInput');
-        // strip scheme/path if user paste URL
         try{
           let v = inp.value.trim();
           if (v.startsWith('http://') || v.startsWith('https://')) {
@@ -79,16 +90,34 @@
           v = v.replace(/\/.*$/, ''); // drop any trailing path
           inp.value = v.toLowerCase();
         }catch{}
-        // let htmx handle submit
         document.getElementById('addTargetForm')
           .addEventListener('htmx:afterRequest', function(e){
-            // if server sends HX-Redirect, follow it; else reload on 201
             const hxRedir = e.detail.xhr.getResponseHeader('HX-Redirect');
             if (hxRedir) { window.location.href = hxRedir; return; }
             if (e.detail.xhr.status === 201) { window.location.reload(); }
           }, { once: true });
         return true;
       }
+
+      // Listen for HX-Trigger from server after deletion and remove the card
+      // Your delete endpoint should send: HX-Trigger: {"target-deleted":{"scope":"<scope>"}}
+      document.body.addEventListener('target-deleted', (ev) => {
+        const scope = ev.detail?.scope;
+        if (!scope) return;
+        const card = document.querySelector(`[data-scope="${scope}"]`);
+        card?.remove();
+        // Close modal if still open
+        const modalRoot = document.getElementById('modal-root');
+        if (modalRoot) modalRoot.innerHTML = '';
+      });
+
+      // Optional: close modal when clicking the overlay (uses data attribute from the partial)
+      document.addEventListener('click', (e) => {
+        if (e.target?.dataset?.modalOverlay === '1') {
+          const modalRoot = document.getElementById('modal-root');
+          if (modalRoot) modalRoot.innerHTML = '';
+        }
+      });
     </script>
   </div>
 </div>

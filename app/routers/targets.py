@@ -6,14 +6,14 @@ import json
 import os
 import re
 import shlex
-import signal
+import signal, shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, quote
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from ..deps import get_settings, get_templates
@@ -1280,3 +1280,53 @@ async def probe_module_start_alias(scope: str, module: str, request: Request):
     out_dir = OUTPUTS_DIR / scope
     asyncio.create_task(_run_job(scope, "probe_module", out_dir, jid))
     return JSONResponse({"ok": True, "job_id": jid})
+    
+def _scope_dir(request: Request, scope: str) -> Path:
+    return Path(get_settings(request).OUTPUTS_DIR) / scope
+
+@router.get("/{scope}/delete/confirmation", response_class=HTMLResponse)
+async def delete_confirm(request: Request, scope: str):
+    T = get_templates(request)
+    scope_path = _scope_dir(request, scope)
+    if not scope_path.exists():
+        return HTMLResponse(
+            f"<div class='p-4 text-sm text-rose-600'>Target <code>{scope}</code> not found.</div>"
+        )
+    return T.TemplateResponse(
+        "_confirm_delete.html",
+        {"request": request, "scope": scope}
+    )
+
+@router.post("/{scope}/delete/confirmed", response_class=HTMLResponse)
+async def delete_hard(request: Request, scope: str, confirm: str = Form(...)):
+    # Require exact scope confirmation
+    if confirm.strip() != scope:
+        return HTMLResponse(
+            "<div class='p-3 text-sm text-rose-600'>Confirmation does not match.</div>",
+            status_code=400
+        )
+
+    scope_path = _scope_dir(request, scope)
+    root = Path(get_settings(request).OUTPUTS_DIR).resolve()
+
+    # Guard: must be under outputs root
+    try:
+        sp = scope_path.resolve()
+        if not sp.exists() or root not in sp.parents:
+            return HTMLResponse(
+                "<div class='p-3 text-sm text-rose-600'>Target path is invalid.</div>",
+                status_code=400
+            )
+        shutil.rmtree(sp)
+    except Exception as e:
+        return HTMLResponse(
+            f"<div class='p-3 text-sm text-rose-600'>Delete failed: {e}</div>",
+            status_code=500
+        )
+
+    # Tell the page to remove the card
+    # On success
+    headers = {
+      "HX-Trigger": json.dumps({"target-deleted": {"scope": scope}})
+    }
+    return Response("", status_code=204, headers=headers)
