@@ -53,7 +53,6 @@
 {%- endif %}
   </textarea>
 
-
   <!-- Controls -->
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-2">
@@ -73,6 +72,19 @@
         Open urls.txt
       </a>
       {% endif %}
+      <!-- Running indicator + elapsed -->
+      <div id="runIndicator"
+           class="hidden items-center gap-2 text-sm text-slate-600 ml-2">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10"
+                  stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+        </svg>
+        <span>Running…</span>
+        <span class="text-slate-400">·</span>
+        <span id="elapsed">0s</span>
+      </div>
     </div>
 
     <!-- View mode toggles -->
@@ -114,15 +126,19 @@
   const moduleName = {{ module|tojson }};
   const hostParam  = {{ (host or "")|tojson }};
 
-  const runBtn    = document.getElementById('runBtn');
-  const cancelBtn = document.getElementById('cancelBtn');
-  const outEl     = document.getElementById('out');
-  const boxEl     = document.getElementById('termBox');
-  const btnWrap   = document.getElementById('modeWrap');
-  const btnScroll = document.getElementById('modeScroll');
+  const runBtn     = document.getElementById('runBtn');
+  const cancelBtn  = document.getElementById('cancelBtn');
+  const outEl      = document.getElementById('out');
+  const boxEl      = document.getElementById('termBox');
+  const btnWrap    = document.getElementById('modeWrap');
+  const btnScroll  = document.getElementById('modeScroll');
+  const indEl      = document.getElementById('runIndicator');
+  const elapsedEl  = document.getElementById('elapsed');
 
   let es = null;
   let currentJob = null;
+  let timer = null;
+  let startedAt = 0;
 
   function normalizeToolForAPI(t){
     return (t === 'rebuild') ? 'build' : t;
@@ -156,6 +172,20 @@
   function setRunning(on){
     runBtn.disabled = on;
     cancelBtn.disabled = !on;
+    // indicator + timer
+    if (on) {
+      startedAt = Date.now();
+      elapsedEl.textContent = '0s';
+      indEl.classList.remove('hidden');
+      if (timer) clearInterval(timer);
+      timer = setInterval(()=>{
+        const s = Math.floor((Date.now() - startedAt)/1000);
+        elapsedEl.textContent = s + 's';
+      }, 1000);
+    } else {
+      if (timer) clearInterval(timer);
+      indEl.classList.add('hidden');
+    }
   }
 
   function setWrap(){
@@ -188,38 +218,45 @@
     outEl.textContent = "";
     setRunning(true);
 
-    const startURL = apiPath('start');
-    const startRes = await fetch(startURL, { method: 'POST' });
-    if (!startRes.ok){
-      append(`[error] Failed to start. HTTP ${startRes.status}\n`);
-      setRunning(false);
-      return;
-    }
-    const data = await startRes.json();
-    const jobId = data.job_id || data.jobId || null;
-    if (!jobId){
-      append("[error] No job id returned\n");
-      setRunning(false);
-      return;
-    }
-    currentJob = jobId;
-
-    const streamURL = apiPath('stream', jobId);
-    es = new EventSource(streamURL);
-    es.onmessage = (ev) => {
-      if (ev.data === '[[DONE]]'){
+    try{
+      const startURL = apiPath('start');
+      const startRes = await fetch(startURL, { method: 'POST' });
+      if (!startRes.ok){
+        append(`[error] Failed to start. HTTP ${startRes.status}\n`);
         setRunning(false);
-        es.close(); es = null;
         return;
       }
-      append(ev.data + "\n");
-    };
-    es.onerror = () => {
-      append("[error] stream connection lost\n");
+      const data = await startRes.json();
+      const jobId = data.job_id || data.jobId || null;
+      if (!jobId){
+        append("[error] No job id returned\n");
+        setRunning(false);
+        return;
+      }
+      currentJob = jobId;
+
+      const streamURL = apiPath('stream', jobId);
+      es = new EventSource(streamURL);
+      es.onmessage = (ev) => {
+        if (ev.data === '[[DONE]]'){
+          setRunning(false);
+          try { es.close(); } catch(_){}
+          es = null;
+          append("[done] finished\n");
+          return;
+        }
+        append(ev.data + "\n");
+      };
+      es.onerror = () => {
+        append("[error] stream connection lost\n");
+        setRunning(false);
+        try { es.close(); } catch(_){}
+        es = null;
+      };
+    }catch(err){
+      append(`[error] ${err && err.message ? err.message : err}\n`);
       setRunning(false);
-      try { es.close(); } catch(_){}
-      es = null;
-    };
+    }
   }
 
   async function cancelJob(){
@@ -235,6 +272,13 @@
 
   runBtn?.addEventListener('click', startJob);
   cancelBtn?.addEventListener('click', cancelJob);
+
+  // Optional: Ctrl+Enter to run
+  document.addEventListener('keydown', (e)=>{
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !runBtn.disabled) {
+      startJob();
+    }
+  });
 })();
 </script>
 {% endblock %}
