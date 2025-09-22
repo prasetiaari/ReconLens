@@ -11,6 +11,7 @@ from dateutil import parser as dtparser
 from app.config import Settings
 
 # Routers
+from app.routers import settings as settings_router
 from app.routers import ai as ai_router
 from app.routers import ai_commands as ai_commands_router  # NEW
 from app.routers import ai_cmd as ai_cmd_router
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
 
     # Routers (tanpa duplikat)    
+    app.include_router(settings_router.router)
     app.include_router(ai_router.router)               # yang lama (insights, dll.)
     app.include_router(ai_commands_router.router)      # yang baru: AI Command
     app.include_router(ai_cmd_router.router)

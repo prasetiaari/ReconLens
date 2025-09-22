@@ -1,0 +1,341 @@
+{# app/templates/settings.html #}
+{% extends "base.html" %}
+{% block title %}Settings · ReconLens{% endblock %}
+
+{% block content %}
+{# ---- Safe defaults so template won't explode if settings is missing/partial ---- #}
+{% set s      = settings or {} %}
+{% set http   = s.get('http', {}) %}
+{% set ua     = http.get('user_agent', {'mode':'default','value':''}) %}
+{% set proxy  = http.get('proxy', {'enabled': false, 'url': ''}) %}
+{% set headers= http.get('headers', []) %}
+{% set tools  = s.get('tools', {}) %}
+{% set ui     = s.get('ui', {}) %}
+{% set ai     = s.get('ai', {}) %}
+
+<div class="max-w-5xl mx-auto space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Settings</h1>
+    <a href="/" class="text-sm text-blue-600 hover:underline">← Back to home</a>
+  </div>
+
+  {# =========================
+     General HTTP Behavior
+     ========================= #}
+  <section class="rounded-xl border bg-white">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">General HTTP</h2>
+      <span id="http-status" class="text-xs text-slate-500"></span>
+    </div>
+    <form
+      id="form-http"
+      class="p-5 space-y-5"
+      hx-post="/settings/http"
+      hx-target="#http-status"
+      hx-swap="innerHTML">
+
+      <!-- User-Agent -->
+      <div class="grid sm:grid-cols-3 gap-3 items-start">
+        <label class="text-sm text-slate-600 mt-2">User-Agent</label>
+        <div class="sm:col-span-2 space-y-2">
+          {% set ua_mode = ua.get('mode','default') %}
+          <select name="ua_mode" id="uaMode" class="input w-full max-w-md">
+            <option value="default" {{ 'selected' if ua_mode=='default' }}>Default</option>
+            <option value="random"  {{ 'selected' if ua_mode=='random'  }}>Random</option>
+            <option value="custom"  {{ 'selected' if ua_mode=='custom'  }}>Custom</option>
+          </select>
+          <input
+            name="ua_custom"
+            id="uaCustom"
+            class="input w-full max-w-xl"
+            placeholder="Mozilla/5.0 (...) Safari/537.36"
+            value="{{ ua.get('value','') if ua_mode=='custom' }}"
+            {{ '' if ua_mode=='custom' else 'disabled' }}>
+          <p class="text-xs text-slate-500">Use <em>Random</em> to rotate UA per request (where supported).</p>
+        </div>
+      </div>
+
+      <!-- Timeouts & Concurrency -->
+      <div class="grid sm:grid-cols-3 gap-3 items-start">
+        <label class="text-sm text-slate-600 mt-2">Timeout & Concurrency</label>
+        <div class="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-500">Request timeout (seconds)</label>
+            <input type="number" min="1" step="1" name="timeout"
+              class="input w-full"
+              value="{{ http.get('timeout', 10) }}">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Max concurrency</label>
+            <input type="number" min="1" step="1" name="concurrency"
+              class="input w-full"
+              value="{{ http.get('concurrency', 20) }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Global Headers (dynamic list) -->
+      <div class="grid sm:grid-cols-3 gap-3 items-start">
+        <label class="text-sm text-slate-600 mt-2">Global Headers</label>
+        <div class="sm:col-span-2">
+          <div id="headersList" class="space-y-2">
+            {% if headers and headers|length %}
+              {% for h in headers %}
+                <div class="flex gap-2 items-center header-row">
+                  <input name="headers_key"  class="input w-40" placeholder="Header" value="{{ h.get('key','') }}">
+                  <input name="headers_val"  class="input flex-1" placeholder="Value" value="{{ h.get('value','') }}">
+                  <button type="button" class="px-2 py-1 text-xs rounded border hover:bg-slate-50" onclick="removeHeaderRow(this)">Remove</button>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="flex gap-2 items-center header-row">
+                <input name="headers_key"  class="input w-40" placeholder="Header">
+                <input name="headers_val"  class="input flex-1" placeholder="Value">
+                <button type="button" class="px-2 py-1 text-xs rounded border hover:bg-slate-50" onclick="removeHeaderRow(this)">Remove</button>
+              </div>
+            {% endif %}
+          </div>
+          <button type="button" class="mt-2 px-2 py-1 text-xs rounded border hover:bg-slate-50" onclick="addHeaderRow()">+ Add header</button>
+          <p class="text-xs text-slate-500 mt-1">These headers will be sent by supported tools (probers, fetchers, etc.).</p>
+        </div>
+      </div>
+
+      <!-- Proxy -->
+      <div class="grid sm:grid-cols-3 gap-3 items-start">
+        <label class="text-sm text-slate-600 mt-2">Proxy</label>
+        <div class="sm:col-span-2 space-y-2">
+          <div class="flex items-center gap-2">
+            {% set px_enabled = proxy.get('enabled', false) %}
+            <input id="proxyEnabled" type="checkbox" name="proxy_enabled" class="h-4 w-4" {{ 'checked' if px_enabled }}>
+            <label for="proxyEnabled" class="text-sm">Enable proxy</label>
+          </div>
+          <input name="proxy_url" id="proxyUrl" class="input w-full max-w-xl"
+                 placeholder="http://127.0.0.1:8080  or  socks5://127.0.0.1:9050"
+                 value="{{ proxy.get('url','') }}"
+                 {{ '' if px_enabled else 'disabled' }}>
+          <p class="text-xs text-slate-500">Useful for Burp/ZAP interception or routing via SOCKS.</p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t">
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </section>
+
+  {# =========================
+     Tool-specific  (router: /settings/tooling)
+     ========================= #}
+  <section class="rounded-xl border bg-white">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">Tools</h2>
+      <span id="tools-status" class="text-xs text-slate-500"></span>
+    </div>
+    <form
+      id="form-tools"
+      class="p-5 space-y-6"
+      hx-post="/settings/tooling"
+      hx-target="#tools-status"
+      hx-swap="innerHTML">
+
+      <!-- Waymore / GAU -->
+      <div>
+        <div class="text-sm font-medium mb-2">Waymore / GAU</div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-500">Urlscan.io API key</label>
+            <input name="urlscan_api" class="input w-full" placeholder="optional"
+                   value="{{ tools.get('urlscan_api','') }}">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">VirusTotal API key</label>
+            <input name="virustotal_api" class="input w-full" placeholder="optional"
+                   value="{{ tools.get('virustotal_api','') }}">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Sources</label>
+            <input name="waymore_sources" class="input w-full" placeholder="e.g. commoncrawl,otx,urlscan"
+                   value="{{ tools.get('waymore_sources','') }}">
+            <p class="text-xs text-slate-500 mt-1">Comma-separated. Leave empty for tool defaults.</p>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Max URLs per scope</label>
+            <input type="number" min="0" name="urls_limit" class="input w-full"
+                   value="{{ tools.get('urls_limit', 0) }}">
+            <p class="text-xs text-slate-500 mt-1">0 = unlimited (use with care).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- dirsearch -->
+      <div>
+        <div class="text-sm font-medium mb-2">dirsearch</div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-500">Wordlist path</label>
+            <input name="dirsearch_wordlist" class="input w-full"
+                   placeholder="/path/to/wordlist.txt"
+                   value="{{ tools.get('dirsearch_wordlist','') }}">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Extensions (comma-separated)</label>
+            <input name="dirsearch_ext" class="input w-full"
+                   placeholder="php,asp,aspx,js,json"
+                   value="{{ tools.get('dirsearch_ext','') }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Probers -->
+      <div>
+        <div class="text-sm font-medium mb-2">Probers</div>
+        <div class="grid sm:grid-cols-3 gap-3 items-center">
+          {% set prefer_https = tools.get('prefer_https', True) %}
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="prefer_https" class="h-4 w-4" {{ 'checked' if prefer_https }}>
+            <span class="text-sm">Prefer HTTPS</span>
+          </div>
+          <div class="flex items-center gap-2">
+            {% set head_then_get = tools.get('if_head_then_get', True) %}
+            <input type="checkbox" name="if_head_then_get" class="h-4 w-4" {{ 'checked' if head_then_get }}>
+            <span class="text-sm">If HEAD then GET</span>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Per-request delay (ms)</label>
+            <input type="number" min="0" step="50" name="delay_ms" class="input w-full"
+                   value="{{ tools.get('delay_ms', 0) }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t">
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </section>
+
+  {# =========================
+     UI & Reports
+     ========================= #}
+  <section class="rounded-xl border bg-white">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">UI & Reports</h2>
+      <span id="ui-status" class="text-xs text-slate-500"></span>
+    </div>
+    <form
+      class="p-5 space-y-5"
+      hx-post="/settings/ui"
+      hx-target="#ui-status"
+      hx-swap="innerHTML">
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Theme</label>
+        {% set theme = ui.get('theme','light') %}
+        <select name="theme" class="input w-full sm:col-span-2 max-w-xs">
+          <option value="light" {{ 'selected' if theme=='light' }}>Light</option>
+          <option value="dark"  {{ 'selected' if theme=='dark'  }}>Dark</option>
+          <option value="auto"  {{ 'selected' if theme=='auto'  }}>Auto</option>
+        </select>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Result retention (days)</label>
+        <input type="number" min="0" name="retention_days" class="input w-full sm:col-span-2 max-w-xs"
+               value="{{ ui.get('retention_days', 0) }}">
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t">
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </section>
+
+  {# =========================
+     AI (Experimental)
+     ========================= #}
+  <section class="rounded-xl border bg-white">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">AI (Experimental)</h2>
+      <span id="ai-status" class="text-xs text-slate-500"></span>
+    </div>
+    <form
+      class="p-5 space-y-5"
+      hx-post="/settings/ai"
+      hx-target="#ai-status"
+      hx-swap="innerHTML">
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Default model</label>
+        {% set model = ai.get('model','llama3.2:3b') %}
+        <select name="ai_model" class="input w-full sm:col-span-2 max-w-xs">
+          <option value="llama3.2:3b" {{ 'selected' if model=='llama3.2:3b' }}>llama3.2:3b</option>
+          <option value="llama3.1:8b" {{ 'selected' if model=='llama3.1:8b' }}>llama3.1:8b</option>
+          <option value="qwen2.5:7b" {{ 'selected' if model=='qwen2.5:7b' }}>qwen2.5:7b</option>
+        </select>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Auto-run plans</label>
+        {% set auto = ai.get('autorun', False) %}
+        <div class="sm:col-span-2 flex items-center gap-2">
+          <input type="checkbox" name="ai_autorun" class="h-4 w-4" {{ 'checked' if auto }}>
+          <span class="text-sm text-slate-600">Allow AI to run safe actions without confirmation</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t">
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+  // ---- Dynamic UI interop (no framework)
+  function addHeaderRow() {
+    const wrap = document.getElementById('headersList');
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center header-row';
+    row.innerHTML = `
+      <input name="headers_key" class="input w-40" placeholder="Header">
+      <input name="headers_val" class="input flex-1" placeholder="Value">
+      <button type="button" class="px-2 py-1 text-xs rounded border hover:bg-slate-50" onclick="removeHeaderRow(this)">Remove</button>
+    `;
+    wrap.appendChild(row);
+  }
+  function removeHeaderRow(btn) {
+    const row = btn.closest('.header-row');
+    row?.remove();
+  }
+
+  // UA mode toggle
+  (function(){
+    const sel = document.getElementById('uaMode');
+    const inp = document.getElementById('uaCustom');
+    function refresh() {
+      inp.disabled = (sel.value !== 'custom');
+    }
+    sel?.addEventListener('change', refresh);
+    refresh();
+  })();
+
+  // Proxy toggle
+  (function(){
+    const cb  = document.getElementById('proxyEnabled');
+    const url = document.getElementById('proxyUrl');
+    function sync(){ url.disabled = !cb.checked; }
+    cb?.addEventListener('change', sync);
+    sync();
+  })();
+
+  // Friendly success blink for htmx responses
+  document.body.addEventListener('htmx:afterRequest', (e)=>{
+    const tgt = e?.detail?.target;
+    if (!tgt) return;
+    const status = e?.detail?.xhr?.status || 0;
+    if (status >= 200 && status < 300) {
+      tgt.innerHTML = '<span class="text-emerald-600">Saved.</span>';
+      setTimeout(()=>{ tgt.textContent = ''; }, 2500);
+    }
+  });
+</script>
+{% endblock %}
