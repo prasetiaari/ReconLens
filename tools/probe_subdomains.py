@@ -102,6 +102,9 @@ async def fetch_title_if_html(client: httpx.AsyncClient, url: str, timeout: floa
                 title = re.sub(r"\s+", " ", m.group(1).strip())[:200]
         return title, code, ctype, size, str(resp.url), None
     except Exception as e:
+        # debug
+        if os.environ.get("PROBE_DEBUG"):
+            print(f"[debug fetch_title_if_html] url={url} err={e}", file=sys.stderr)
         return None, None, None, None, None, str(e)
 
 async def head_or_get(client: httpx.AsyncClient, url: str, timeout: float, if_head_then_get: bool) -> Tuple[Optional[int], Optional[str], Optional[int], Optional[str], Optional[str], Optional[str]]:
@@ -120,6 +123,8 @@ async def head_or_get(client: httpx.AsyncClient, url: str, timeout: float, if_he
                 size = int(resp.headers["content-length"])
         return code, ctype, size, str(resp.url), "HEAD", None
     except Exception as e:
+        if os.environ.get("PROBE_DEBUG"):
+            print(f"[debug head] url={url} err={e}", file=sys.stderr)
         if not if_head_then_get:
             return None, None, None, None, "HEAD", str(e)
 
@@ -136,6 +141,8 @@ async def head_or_get(client: httpx.AsyncClient, url: str, timeout: float, if_he
             size = len(resp.content or b"")
         return code, ctype, size, str(resp.url), "GET", None
     except Exception as e:
+        if os.environ.get("PROBE_DEBUG"):
+            print(f"[debug get] url={url} err={e}", file=sys.stderr)
         return None, None, None, None, "GET", str(e)
 
 # --------------------------------- Data model ---------------------------------
@@ -156,8 +163,23 @@ class ProbeResult:
 
 # --------------------------------- Probe core ---------------------------------
 
+def _normalize_input_host(raw: str) -> str:
+    """
+    Basic normalization: strip whitespace and remove leading scheme (http/https),
+    and any leading slashes. We do NOT add scheme here — that's done when building url.
+    """
+    s = (raw or "").strip()
+    # remove leading scheme variants like "http://", "https://", or malformed "http:" without slashes
+    s = re.sub(r"^\s*https?:/*", "", s, flags=re.I)
+    # also remove any leading slashes leftover
+    s = s.lstrip("/")
+    return s
+
 async def probe_host(client: httpx.AsyncClient, host: str, timeout: float, prefer_https: bool, if_head_then_get: bool) -> ProbeResult:
     t0 = asyncio.get_event_loop().time()
+
+    # Normalize host input (strip accidental scheme/prefix)
+    host = _normalize_input_host(host)
 
     # Resolve IP dulu (tidak fatal kalau gagal)
     ips = await resolve_ips(host)
@@ -167,6 +189,10 @@ async def probe_host(client: httpx.AsyncClient, host: str, timeout: float, prefe
 
     for scheme in schemes:
         url = f"{scheme}://{host}"
+        # Debug: print URL we're about to probe
+        if os.environ.get("PROBE_DEBUG"):
+            print(f"[debug probe_host] host={host} url={url} scheme={scheme}", file=sys.stderr)
+
         # HEAD/GET cepat untuk meta
         code, ctype, size, final_url, mode, err = await head_or_get(client, url, timeout, if_head_then_get=if_head_then_get)
         t1 = asyncio.get_event_loop().time()
@@ -187,6 +213,8 @@ async def probe_host(client: httpx.AsyncClient, host: str, timeout: float, prefe
             break
         else:
             # simpan error sementara (kalau semua skema gagal, pakai yang terakhir)
+            if os.environ.get("PROBE_DEBUG"):
+                print(f"[debug probe_host error] host={host} scheme={scheme} err={err}", file=sys.stderr)
             best = ProbeResult(
                 host=host, scheme=scheme, alive=False, code=None, size=None,
                 title=None, content_type=None, final_url=None, duration_ms=dur_ms,
@@ -329,6 +357,11 @@ async def _runner(
 
     enrich_map = read_json(enrich_path, {})
     host_index = read_json(host_index_path, {})
+
+    # Show first few hosts when debugging
+    if os.environ.get("PROBE_DEBUG"):
+        sample_n = min(5, len(hosts))
+        print(f"[debug runner] total_hosts={len(hosts)} sample_first={hosts[:sample_n]}", file=sys.stderr)
 
     # client
     limits = httpx.Limits(max_keepalive_connections=concurrency, max_connections=concurrency)
