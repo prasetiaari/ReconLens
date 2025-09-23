@@ -29,6 +29,28 @@ ROLLUP_IP = "rollup_group_by_ip.json"          # baru (siap UI)
 
 TITLE_RE = re.compile(r"<\s*title[^>]*>(.*?)</\s*title\s*>", re.I | re.S)
 
+# === tambahkan helper kecil ini (di dekat utils lain) ===
+def _parse_headers_json(s: str | None) -> dict[str, str]:
+    if not s:
+        return {}
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            # normalisasi key: case-insensitive merge di sisi caller; di sini keep apa adanya
+            # pastikan semua value string
+            return {str(k): str(v) for k, v in obj.items()}
+    except Exception:
+        pass
+    return {}
+
+def _ensure_user_agent(h: dict[str, str], fallback_ua: str) -> dict[str, str]:
+    # kalau user sudah set 'User-Agent' (dalam variasi kapital), jangan diubah
+    if any(k.lower() == "user-agent" for k in h.keys()):
+        return h
+    out = dict(h)
+    out["User-Agent"] = fallback_ua
+    return out
+    
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -340,6 +362,7 @@ async def _runner(
     timeout: float,
     prefer_https: bool,
     if_head_then_get: bool,
+    headers: dict[str, str],
 ):
     cache_dir = outputs_dir / scope / CACHE_DIRNAME
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -371,7 +394,8 @@ async def _runner(
         follow_redirects=False,
         timeout=timeout,
         limits=limits,
-        headers={"User-Agent": "urls_parser/1.0 (+subdomains-probe)"},
+        headers=headers,
+        #headers={"User-Agent": "urls_parser/1.0 (+subdomains-probe)"},
     ) as client:
 
         sem = asyncio.Semaphore(concurrency)
@@ -421,12 +445,16 @@ def main():
     ap.add_argument("--timeout", type=float, default=8.0)
     ap.add_argument("--prefer-https", action="store_true", help="Coba https lebih dulu")
     ap.add_argument("--if-head-then-get", action="store_true", help="Kalau HEAD gagal, coba GET")
+    ap.add_argument("--headers-json", help="JSON object of extra headers to send", default=None)
+    ap.add_argument("--ua", help="Override User-Agent (fallback if headers not specify UA)", default="urls_parser/1.0 (+subdomains-probe)")
     args = ap.parse_args()
 
     outputs_dir = Path(args.outputs).resolve()
     scope_dir = outputs_dir / args.scope
     subdomains_path = Path(args.input) if args.input else (scope_dir / "subdomains.txt")
-
+    extra_headers = _parse_headers_json(args.headers_json)
+    extra_headers = _ensure_user_agent(extra_headers, args.ua)
+    
     if not subdomains_path.exists():
         print(f"[err] input not found: {subdomains_path}", file=sys.stderr)
         sys.exit(2)
@@ -439,6 +467,7 @@ def main():
         timeout=max(1.0, args.timeout),
         prefer_https=bool(args.prefer_https),
         if_head_then_get=bool(args.if_head_then_get),
+        headers=extra_headers,
     ))
 
 if __name__ == "__main__":

@@ -41,6 +41,35 @@ router = APIRouter(prefix="/targets", tags=["targets"])
 
 EXTERNAL_TOOLS = {"gau", "waymore", "subfinder", "amass", "findomain", "dirsearch"}
 
+def _merged_headers_from_settings(settings: dict | None) -> dict[str, str]:
+    s = settings or {}
+    http = s.get("http", {}) or {}
+    # kumpulkan global headers (list of {key,value})
+    out: dict[str, str] = {}
+    for item in (http.get("headers") or []):
+        k = (item.get("key") or "").strip()
+        v = (item.get("value") or "")
+        if not k:
+            continue
+        # merge case-insensitive: key terakhir menang
+        # di sini kita simpan apa adanya; httpx akan kirim dengan kapitalisasi ini
+        out[k] = v
+
+    # User-Agent policy
+    ua_mode  = ((http.get("user_agent") or {}).get("mode") or "default").lower()
+    ua_value = (http.get("user_agent") or {}).get("value") or ""
+    # kalau user sudah set header 'User-Agent' di atas, jangan override
+    if not any(k.lower() == "user-agent" for k in out.keys()):
+        if ua_mode == "custom" and ua_value.strip():
+            out["User-Agent"] = ua_value.strip()
+        elif ua_mode == "random":
+            # versi cepat: biarkan tool internal handle random kalau kamu punya;
+            # sementara fallback UA simple
+            out["User-Agent"] = "ReconLens/1.0 (+random-UA-placeholder)"
+        else:
+            out["User-Agent"] = "ReconLens/1.0 (+probe)"
+    return out
+    
 def _split_path(pathstr: str) -> list[str]:
     return [p for p in (pathstr or "").split(os.pathsep) if p]
 
@@ -886,6 +915,7 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
         ]
 
     if tool == "probe_subdomains":
+        headers_dict = _merged_headers_from_settings(settings)
         return [
             py_exe, "-m", "ReconLens.tools.probe_subdomains",
             "--scope", scope,
@@ -895,6 +925,8 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
             "--timeout", "8",
             "--prefer-https",
             "--if-head-then-get",
+            "--headers-json", json.dumps(headers_dict, ensure_ascii=False),
+            "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
         ]
 
     if tool == "probe_module":
@@ -911,12 +943,22 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
         else:
             input_file = candidates  # biar errornya jelas di CLI
 
-        ua = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-              "AppleWebKit/537.36 (KHTML, like Gecko) "
-              "Chrome/124.0 Safari/537.36")
-
         default_mode = "GET"  # untuk sebagian besar modul
-
+        headers_dict = _merged_headers_from_settings(settings)
+        if module == "subdomains":
+            return [
+            py_exe, "-m", "ReconLens.tools.probe_subdomains",
+            "--scope", scope,
+            "--input", str(out_dir / "subdomains.txt"),
+            "--outputs", str(outputs_root),
+            "--concurrency", "20",
+            "--timeout", "8",
+            "--prefer-https",
+            "--if-head-then-get",
+            "--headers-json", json.dumps(headers_dict, ensure_ascii=False),
+            "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
+        ]
+        
         return [
             py_exe, "-m", "ReconLens.tools.probe_urls",
             "--scope",   scope,
@@ -926,7 +968,8 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
             "--mode",    default_mode,
             "--concurrency", "8",
             "--timeout",     "20",
-            "--ua", ua,
+            "--headers-json", json.dumps(headers_dict, ensure_ascii=False),
+            "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
         ]
     
     if tool == "dirsearch":
