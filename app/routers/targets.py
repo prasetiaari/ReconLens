@@ -38,6 +38,77 @@ OUTPUTS_DIR = BASE_DIR / "outputs"  # outputs/<scope>
 
 router = APIRouter(prefix="/targets", tags=["targets"])
 
+
+EXTERNAL_TOOLS = {"gau", "waymore", "subfinder", "amass", "findomain", "dirsearch"}
+
+def _split_path(pathstr: str) -> list[str]:
+    return [p for p in (pathstr or "").split(os.pathsep) if p]
+
+def _without_venv_bin(path_list: list[str]) -> list[str]:
+    ve = os.environ.get("VIRTUAL_ENV")
+    if not ve:
+        return path_list
+    ve_bin = str(Path(ve) / "bin")
+    return [p for p in path_list if os.path.abspath(p) != os.path.abspath(ve_bin)]
+
+def _systemish_path() -> str:
+    # Buang venv/bin; prepend lokasi umum (hanya jika ada & belum masuk)
+    base = _without_venv_bin(_split_path(os.environ.get("PATH", "")))
+    prefer = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    ordered = [p for p in prefer if os.path.isdir(p)] + base
+    seen, uniq = set(), []
+    for p in ordered:
+        if p not in seen:
+            uniq.append(p); seen.add(p)
+    return os.pathsep.join(uniq)
+
+def _which_with_path(tool: str, path_env: str) -> Optional[str]:
+    old = os.environ.get("PATH")
+    try:
+        os.environ["PATH"] = path_env
+        return shutil.which(tool)
+    finally:
+        if old is not None:
+            os.environ["PATH"] = old
+
+def _resolve_external_binary(tool: str, settings: Optional[dict]) -> str:
+    """
+    Urutan:
+      1) settings.tools.<tool>.binary_path
+      2) ENV RECONLENS_BIN_<TOOL>
+      3) which() di PATH sistem (disanitasi)
+      4) which() di PATH proses (fallback)
+    Raises ValueError jika tidak ketemu.
+    """
+    name = tool.lower()
+    # 1) settings override
+    try:
+        cfg_path = (settings or {}).get("tools", {}).get(name, {}).get("binary_path")  # string or None
+        if cfg_path:
+            if os.path.isfile(cfg_path) and os.access(cfg_path, os.X_OK):
+                return cfg_path
+    except Exception:
+        pass
+
+    # 2) ENV override
+    env_key = f"RECONLENS_BIN_{name.upper()}"
+    env_path = os.environ.get(env_key)
+    if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+        return env_path
+
+    # 3) PATH sistem (tanpa venv/bin)
+    sys_path = _systemish_path()
+    cand = _which_with_path(name, sys_path)
+    if cand:
+        return cand
+
+    # 4) Fallback: PATH proses
+    cand = shutil.which(name)
+    if cand:
+        return cand
+
+    raise ValueError(f"Executable for '{name}' not found. Set via Settings or {env_key}.")
+    
 # === In-memory job registry ==================================================
 
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -786,7 +857,7 @@ def _python_exe() -> str:
     return which("python3") or which("python") or "python3"
 
 
-def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None = None, host: str | None = None, wordlists: str | None = None,) -> list[str]:
+def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None = None, host: str | None = None, wordlists: str | None = None, settings: Optional[dict] = None,) -> list[str]:
     """
     Build command to run in the repo root.
     - gau / waymore
@@ -799,10 +870,12 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
     out_dir = outputs_root / scope
 
     if tool == "gau":
-        return ["gau", "--verbose", "--o", str(out_dir / "urls.txt"), scope]
+        exe = _resolve_external_binary("gau", settings)
+        return [exe, "--verbose", "--o", str(out_dir / "urls.txt"), scope]
 
     if tool == "waymore":
-        return ["waymore", "-i", scope, "-mode","U","-oU", str(out_dir / "urls.txt"),"-v"]
+        exe = _resolve_external_binary("waymore", settings)
+        return [exe, "-i", scope, "-mode","U","-oU", str(out_dir / "urls.txt"),"--verbose"]
         
     if tool == "build":
         return [
@@ -861,8 +934,9 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
             raise ValueError("dirsearch requires host")
         # stdout cukup kaya; kita tetap regex URL di _run_job
         # NB: jalankan dengan target full origin; kamu bisa ganti wordlist/opts sesuai preferensi
+        exe = _resolve_external_binary("dirsearch", settings)
         return [
-            "dirsearch",
+            exe,
             "-u", f"https://{host}",
             "-w", f"{get_wordlists_dir()}/{wordlists}",
             "--format=simple",
@@ -888,19 +962,25 @@ def _tool_cmd(tool: str, scope: str, outputs_root: Path, *, module: str | None =
     # --- passive subdomain collectors ---
     if tool == "subfinder":
         # output baris hostname; akan di-merge ke subdomains.txt
-        return ["subfinder", "-d", scope, "-all", "-silent"]
+        exe = _resolve_external_binary("subfinder", settings)
+        return [exe, "-d", scope, "-all", "-silent"]
     if tool == "amass":
+        exe = _resolve_external_binary("amass", settings)
         # amass enum passive, keluaran mix → kita capture & normalisasi ke hostnames
-        return ["amass", "enum", "-passive", "-d", scope]
+        return [exe, "enum", "-passive", "-d", scope]
     if tool == "findomain":
         # findomain (butuh terinstall). STDOUT hostname
-        return ["findomain", "--target", scope, "--quiet"]
+        exe = _resolve_external_binary("findomain", settings)
+        return [exe, "--target", scope, "--quiet"]
 
     raise ValueError(f"unknown tool: {tool}")
 
 
 async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
     job = JOBS[job_id]
+
+    # --- preview cap untuk UI (SSE) ---
+    MAX_PREVIEW_LINES = 500  # kirim ke browser maksimal 500 baris
 
     # --- prepare dirs --------------------------------------------------------
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -931,17 +1011,28 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
         package_root = outputs_root.parent   # .../ReconLens
         repo_root    = package_root.parent   # .../url_parser_real_world
 
-        module = job.get("module")
-        host   = job.get("host")
-        wordlists   = job.get("wordlists")
-        cmd = _tool_cmd(tool, scope, outputs_root, module=module, host=host, wordlists=wordlists)
+        module    = job.get("module")
+        host      = job.get("host")
+        wordlists = job.get("wordlists")
 
-        # make sure ReconLens importable
+        # settings optional (kalau fungsi ini dipanggil tanpa Request)
+        settings = get_settings(request) if "request" in locals() else None
+
+        # build command (sudah mendukung PATH "system-ish")
+        cmd = _tool_cmd(
+            tool, scope, outputs_root,
+            module=module, host=host, wordlists=wordlists,
+            settings=(settings or {})
+        )
+
+        # make sure ReconLens importable + PATH ke binary system
         env = os.environ.copy()
         env["PYTHONPATH"] = (
             str(repo_root)
             + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         )
+        # gunakan PATH gabungan (system-first) agar tidak selalu pakai venv/bin/*
+        env["PATH"] = _systemish_path()
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -960,16 +1051,19 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
         await q.put(f"[info] raw → {raw_path}\n")
         await q.put("event: status\ndata: running\n\n")
 
-        # --------- SINGLE STDOUT READER ---------
+        # --------- SINGLE STDOUT READER (with preview cap) ---------
         assert proc.stdout is not None
+        preview_count = 0
+        preview_capped = False
+
         async for raw in proc.stdout:
             line = raw.decode("utf-8", "ignore").rstrip("\n")
 
-            # write full to log & raw
+            # tulis FULL ke log & raw file
             log_f.write(line + "\n"); log_f.flush()
             raw_f.write(line + "\n"); raw_f.flush()
 
-            # --- capture heuristics ---
+            # --- capture heuristics (tetap dieksekusi penuh) ---
             if tool == "dirsearch":
                 parsed = _parse_dirsearch_line(line)
                 if parsed:
@@ -992,8 +1086,17 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
             if line.startswith("TOTAL ") or line.startswith("PROGRESS "):
                 await q.put(f"event: progress\ndata: {line}\n\n")
 
-            # kirim ke UI (truncate biar rapih)
-            await q.put(line[:200] + "\n")
+            # --- kirim ke UI dengan batas baris ---
+            if not preview_capped:
+                preview_count += 1
+                if preview_count <= MAX_PREVIEW_LINES:
+                    # kirim baris (truncate 200 char supaya tidak super panjang)
+                    await q.put(line[:200] + "\n")
+                else:
+                    preview_capped = True
+                    await q.put(f"[info] (preview truncated at {MAX_PREVIEW_LINES} lines to keep the browser responsive)\n")
+                    # setelah ini, jangan kirim baris biasa lagi guna menjaga UI tetap ringan
+                    # (loop tetap lanjut agar file/log tetap lengkap)
 
         rc = await proc.wait()
         await q.put(f"\n[exit] code={rc}\n")
@@ -1111,6 +1214,7 @@ async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
                 f"[summary] merged (aggregate) → {agg}  unique_added_agg={max(0, after_agg-before_agg)}  "
                 f"agg_total={after_agg}\n"
             )
+
         # signal selesai
         await q.put("event: status\ndata: done\n\n")
 
