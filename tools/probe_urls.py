@@ -18,6 +18,27 @@ from ..app.services.enrich_urls import (
     merge_into_url_enrich,
 )
 
+def _parse_headers_json(s: str | None) -> dict:
+    if not s:
+        return {}
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            # pastikan semua key/value jadi string
+            return {str(k): str(v) for k, v in obj.items()}
+    except Exception:
+        pass
+    return {}
+
+def _ensure_user_agent(h: dict, fallback: str | None) -> dict:
+    # kalau sudah ada user-agent (case-insensitive), jangan timpa
+    if any(k.lower() == "user-agent" for k in h.keys()):
+        return h
+    if fallback:
+        h = dict(h)
+        h["User-Agent"] = fallback
+    return h
+    
 # ------------------------ HTTP fetcher ------------------------ #
 async def fetch_url(
     client: httpx.AsyncClient,
@@ -80,6 +101,7 @@ async def _runner(
     timeout: int,
     ua: str,
     retries: int,
+    headers: dict | None = None,
 ) -> Tuple[int, int]:
     """
     Probe kumpulan URL secara concurrent dan tulis:
@@ -97,10 +119,6 @@ async def _runner(
         max_connections=max(4, concurrency),
         max_keepalive_connections=max(4, concurrency),
     )
-    headers = {
-        "User-Agent": ua or "urls-prober/1.0 (+github)",
-        "Accept": "*/*",
-    }
 
     connector_opts = dict(verify=False)
 
@@ -166,17 +184,17 @@ def main():
     ap.add_argument("--mode", default="GET", choices=["GET", "HEAD"], help="HTTP method")
     ap.add_argument("--concurrency", type=int, default=12, help="Concurrent workers")
     ap.add_argument("--timeout", type=int, default=20, help="Per request timeout (seconds)")
-    ap.add_argument("--ua", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                    "Chrome/123.0 Safari/537.36",
-                    help="User-Agent header")
+    ap.add_argument("--headers-json", help="JSON object of extra headers to send", default=None)
+    ap.add_argument("--ua", help="Override User-Agent (fallback if headers not specify UA)", default="urls_parser/1.0 (+subdomains-probe)")
     ap.add_argument("--retries", type=int, default=1, help="Retries per URL on error")
     args = ap.parse_args()
 
     base = Path(args.outputs).resolve()
     inp = Path(args.input).resolve()
     urls = [x.strip() for x in inp.read_text(encoding="utf-8").splitlines() if x.strip()]
-
+    
+    headers = _parse_headers_json(args.headers_json)
+    headers = _ensure_user_agent(headers, args.ua)
     asyncio.run(
         _runner(
             urls=urls,
@@ -188,6 +206,7 @@ def main():
             timeout=args.timeout,
             ua=args.ua,
             retries=args.retries,
+            headers=headers,
         )
     )
 
