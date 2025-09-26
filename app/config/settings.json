@@ -1,0 +1,43 @@
+{
+  "http": {
+    "user_agent": {
+      "mode": "default",
+      "value": ""
+    },
+    "timeout": 10,
+    "concurrency": 20,
+    "headers": [
+      {
+        "key": "",
+        "value": ""
+      },
+      {
+        "key": "user-agent",
+        "value": "Reconlens"
+      }
+    ],
+    "proxy": {
+      "enabled": true,
+      "url": ""
+    }
+  },
+  "tools": {
+    "urlscan_api": "",
+    "virustotal_api": "",
+    "waymore_sources": "",
+    "urls_limit": 0,
+    "dirsearch_wordlist": "",
+    "dirsearch_ext": "",
+    "prefer_https": true,
+    "if_head_then_get": true,
+    "delay_ms": 0
+  },
+  "ui": {
+    "theme": "light",
+    "retention_days": 0
+  },
+  "ai": {
+    "model": "llama3.2:3b",
+    "autorun": false
+  }
+}

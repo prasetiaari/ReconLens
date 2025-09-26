@@ -171,7 +171,7 @@
       const scopeVal  = {{ scope|tojson }};
       const moduleVal = {{ module|tojson }};
       const tool = moduleVal; // untuk dirsearch & probe_paths: tool == module
-      let url = `/targets/${encodeURIComponent(scopeVal)}/collect/${encodeURIComponent(tool)}?module=${encodeURIComponent(moduleVal)}&i-have-permission=1`;
+      let url = `/targets/${encodeURIComponent(scopeVal)}/probe/module/${encodeURIComponent(moduleVal)}`;
 
       {% if (module|lower) == 'dirsearch' %}
         const hostSel = document.getElementById('{{ modal_id }}_host');
@@ -187,6 +187,7 @@
         const pfVal   = (pathsIn?.value || '').trim();
         if (hostVal && hostVal !== '__all__') url += `&host=${encodeURIComponent(hostVal)}`;
         if (pfVal) url += `&paths_file=${encodeURIComponent(pfVal)}`;
+        
       {% endif %}
 
       window.open(url, '_blank');

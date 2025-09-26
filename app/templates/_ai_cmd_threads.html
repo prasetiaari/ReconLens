@@ -1,0 +1,15 @@
+{# _ai_cmd_threads.html #}
+<div class="space-y-1">
+  {% if threads and threads|length %}
+    {% for th in threads %}
+      <a
+        href="/targets/{{ scope }}/ai/command?thread={{ th.id }}"
+        class="block px-3 py-2 rounded hover:bg-slate-100 text-slate-800 truncate"
+      >
+        {{ th.title or th.id }}
+      </a>
+    {% endfor %}
+  {% else %}
+    <div class="px-3 py-2 text-slate-500">No threads yet.</div>
+  {% endif %}
+</div>

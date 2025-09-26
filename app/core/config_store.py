@@ -7,7 +7,7 @@ from typing import Any, Dict, Tuple
 
 # Lokasi file config (aman di luar web-root; masih di bawah project)
 # Silakan ubah kalau mau: mis. Path("outputs/__config/settings.json")
-CONFIG_PATH = Path("outputs/__config/settings.json")
+CONFIG_PATH = Path("app/config/settings.json")
 
 
 def _ensure_parent(p: Path) -> None:

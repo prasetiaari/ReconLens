@@ -20,16 +20,16 @@
 </div>
 
 {# =======================
-   LAYOUT: Sidebar (threads) + Main
+   LAYOUT: Sidebar (threads) + Main (chat)
    ======================= #}
 <div class="mt-4 grid grid-cols-12 gap-4">
-  {# -------- Sidebar: Threads -------- #}
+  <!-- Sidebar: Threads -->
   <aside class="col-span-12 md:col-span-3">
     <div class="rounded-lg border bg-white p-3">
       <div class="flex items-center justify-between mb-2">
         <div class="text-xs uppercase tracking-wide text-slate-500">Threads</div>
 
-        {# New Thread -> POST, server balas JSON dan JS akan redirect ke ?thread=<id> #}
+        <!-- New Thread: POST -> JSON {ok, thread_id}; JS redirect ke ?thread=<id> -->
         <div class="inline-flex items-center gap-2" title="Create new thread">
           <input id="new-thread-title" class="input py-1 px-2 text-sm" placeholder="new thread title…"/>
           <button
@@ -44,7 +44,7 @@
         </div>
       </div>
 
-      {# daftar thread selalu fresh #}
+      <!-- daftar thread (selalu fresh) -->
       <div id="threads-list"
            hx-get="/targets/{{ scope }}/ai/command/thread_list"
            hx-trigger="load"
@@ -54,9 +54,10 @@
     </div>
   </aside>
 
-  {# -------- Main -------- #}
+  <!-- Main: Chat -->
   <main class="col-span-12 md:col-span-9">
-    <div class="rounded-lg border bg-white">
+    <div class="rounded-lg border bg-white h-[72vh] flex flex-col">
+      <!-- Header -->
       <div class="px-4 py-3 border-b flex items-center gap-4">
         <div class="text-sm">
           <span class="text-slate-500">Model</span>
@@ -77,73 +78,73 @@
         </div>
 
         <div class="ml-auto text-sm text-slate-500">
-          Thread:
-          <span class="font-mono">{{ active_thread or "–" }}</span>
+          Thread: <span class="font-mono">{{ active_thread or "–" }}</span>
         </div>
       </div>
 
-      <div class="p-4">
-        {# Prompt form -> parse ke plan (thread wajib) #}
-        <form
-          id="aiPlanForm"
-          hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/parse"
-          hx-target="#ai-conversation"
-          hx-swap="innerHTML"
-          onsubmit="attachPlanFormParams(this);"
-          class="space-y-3"
-        >
-          <textarea name="prompt" rows="3" class="w-full input"
-                    placeholder="Tulis perintah… misal: tampilkan seluruh subdomain yg aktif"
-                    {{ '' if active_thread else 'disabled' }} required></textarea>
-
-          <div class="flex items-center gap-2">
-            <button type="submit"
-                    class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
-                    {{ '' if active_thread else 'disabled' }}>
-              Create Plan
-            </button>
-
-            <button type="button"
-                    id="aiRunBtn"
-                    class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-                    {{ '' if active_thread else 'disabled' }}
-                    hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
-                    hx-target="#ai-conversation"
-                    hx-swap="innerHTML">
-              ▶ Run Plan
-            </button>
-          </div>
-
-          {# hidden fields diisi dari dropdown di header #}
-          <input type="hidden" name="model" id="ai-model-hidden" value="llama3.2:3b" />
-          <input type="hidden" name="intent" id="ai-intent-hidden" value="auto" />
-        </form>
-
-        {% if not active_thread %}
-          <div class="mt-2 text-xs text-amber-600">
-            Buat/ pilih thread terlebih dulu di panel kiri untuk mengaktifkan form.
-          </div>
-        {% endif %}
-      </div>
-    </div>
-
-    {# Conversation / messages panel #}
-    <div class="mt-4 rounded-lg border bg-white">
-      <div class="px-4 py-3 border-b flex items-center justify-between">
-        <div class="text-sm font-medium text-slate-700">Conversation</div>
-        {% if active_thread %}
-          <a class="btn text-sm px-3 py-1 rounded border hover:bg-slate-50"
-             href="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+      <!-- Conversation (scrollable) -->
+      <div id="ai-conversation"
+           class="flex-1 overflow-auto p-4"
+           {% if active_thread %}
              hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
-             hx-target="#ai-conversation"
-             hx-swap="innerHTML">Refresh</a>
-        {% endif %}
-      </div>
-      <div id="ai-conversation" class="p-4">
+             hx-trigger="load"
+             hx-swap="innerHTML"
+           {% endif %}>
         {% if messages and messages|length %}
           {% include "_ai_cmd_messages.html" with context %}
         {% else %}
-          <div class="text-sm text-slate-500">No messages yet.</div>
+          <div class="text-sm text-slate-500">
+            {% if active_thread %}No messages yet.{% else %}Create / pilih thread di kiri.{% endif %}
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Composer (chat style, di bawah) -->
+      <div class="border-t p-3">
+        {% if active_thread %}
+          <form id="aiPlanForm"
+                class="flex items-start gap-2"
+                hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/parse"
+                hx-target="#ai-conversation"
+                hx-swap="innerHTML"
+                onsubmit="attachPlanFormParams(this);">
+            <textarea name="prompt"
+                      id="chat-input"
+                      rows="1"
+                      class="w-full input"
+                      placeholder="Tulis perintah… (Enter = kirim, Shift+Enter = baris baru)"
+                      required></textarea>
+
+            <div class="flex items-center gap-2">
+              <button type="submit"
+                      class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">
+                Send
+              </button>
+
+              <button type="button"
+                      id="aiRunBtn"
+                      class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML">
+                ▶ Run Plan
+              </button>
+
+              <button type="button"
+                      class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
+                      hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML">
+                Refresh
+              </button>
+            </div>
+
+            <!-- hidden fields diisi dari dropdown header -->
+            <input type="hidden" name="model" id="ai-model-hidden" value="llama3.2:3b" />
+            <input type="hidden" name="intent" id="ai-intent-hidden" value="auto" />
+          </form>
+        {% else %}
+          <div class="text-sm text-slate-500">Buat atau pilih thread untuk mulai chat.</div>
         {% endif %}
       </div>
     </div>
@@ -151,10 +152,10 @@
 </div>
 
 {# =======================
-   Helpers
+   Helpers (UI only)
    ======================= #}
 <script>
-  // Isi hidden fields model/intent saat submit "Create Plan"
+  // Pass model/intent ke hidden saat submit
   function attachPlanFormParams(form) {
     const m = document.getElementById('ai-model').value;
     const i = document.getElementById('ai-intent').value;
@@ -162,26 +163,45 @@
     document.getElementById('ai-intent-hidden').value = i;
   }
 
+  // New thread: Enter to submit; redirect ke ?thread=<id> pada afterRequest
   (function () {
-    // Enter pada input judul => klik New
     const inp = document.getElementById('new-thread-title');
     const btn = document.getElementById('btn-new-thread');
     inp?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); btn?.click(); }});
-
-    // Setelah POST new thread: server kirim JSON {ok, thread_id}. Redirect ke ?thread=...
     document.body.addEventListener('htmx:afterRequest', (ev)=>{
       const elt = ev.target;
       if (!elt || elt.id !== 'btn-new-thread') return;
       try {
-        const xhr = ev.detail.xhr;
-        const j = JSON.parse(xhr.responseText);
+        const j = JSON.parse(ev.detail.xhr.responseText || '{}');
         if (j && j.ok && j.thread_id) {
-          const url = new URL(location.href);
-          url.searchParams.set('thread', j.thread_id);
-          location.href = url.pathname + '?' + url.searchParams.toString();
+          const u = new URL(location.href);
+          u.searchParams.set('thread', j.thread_id);
+          location.href = u.pathname + '?' + u.searchParams.toString();
         }
       } catch(_) {}
     });
   })();
+
+  // Auto-scroll ke bawah tiap percakapan di-load / diperbarui
+  document.body.addEventListener('htmx:afterSwap', (ev)=>{
+    if (ev?.detail?.target?.id === 'ai-conversation') {
+      const box = ev.detail.target;
+      box.scrollTop = box.scrollHeight;
+      // fokuskan input biar cepat ngetik lagi
+      const t = document.getElementById('chat-input');
+      t && t.focus();
+    }
+  });
+
+  // Chat UX: Enter kirim, Shift+Enter baris baru
+  document.addEventListener('keydown', (e)=>{
+    const t = document.getElementById('chat-input');
+    if (!t || document.activeElement !== t) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const form = document.getElementById('aiPlanForm');
+      form?.requestSubmit();
+    }
+  });
 </script>
 {% endblock %}
