@@ -1303,7 +1303,7 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
     wl_name = request.query_params.get("wordlist") or ""
     wl_path = resolve_wordlist(wl_name)
     if wl_path is None:
-        wl_name = "small.txt"
+        wl_name = "dicc.txt"
     # last_scans untuk tampilan hint
     meta = _safe_json_load(out_dir / "meta.json")
     last_scans = meta.get("last_scans", {})
@@ -1332,7 +1332,7 @@ async def collect_start(scope: str, tool: str, request: Request):
         wl_name = request.query_params.get("wordlist") or ""
         wl_path = resolve_wordlist(wl_name)
         if wl_path is None:
-            wl_name = "small.txt"
+            wl_name = "dicc.txt"
             
         if not raw_host:
             return JSONResponse({"ok": False, "error": "host param is required for dirsearch"}, status_code=400)

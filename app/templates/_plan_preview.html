@@ -1,0 +1,41 @@
+{# partial untuk menampilkan hasil parsing prompt (plan preview) #}
+{# expects: plan (dict), scope (str) #}
+
+<div class="rounded-lg border border-slate-200 bg-white shadow p-4">
+  {% if plan.error %}
+    <div class="rounded-md border border-rose-200 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
+      {{ plan.error }}
+    </div>
+  {% else %}
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-sm uppercase tracking-wide text-slate-500">AI Plan</div>
+        <div class="text-lg font-semibold text-slate-800">Scope: <span class="font-mono">{{ scope }}</span></div>
+      </div>
+      <span class="text-xs text-slate-400">preview</span>
+    </div>
+
+    {% set actions = plan.actions or [] %}
+    {% if actions %}
+      <div class="mt-3">
+        <div class="text-sm font-medium text-slate-700 mb-2">Actions</div>
+        <ul class="space-y-2">
+          {% for a in actions %}
+            <li class="rounded border border-slate-200 bg-slate-50 p-2">
+              <div class="text-sm">
+                <span class="px-2 py-0.5 rounded bg-slate-800 text-white text-xs">{{ a.tool }}</span>
+                <span class="ml-2 text-slate-600">args:</span>
+              </div>
+              <pre class="mt-1 text-xs leading-5 overflow-auto">{{ a.args | tojson(indent=2) }}</pre>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <details class="mt-3">
+      <summary class="cursor-pointer text-sm text-slate-600 hover:text-slate-800">Raw plan JSON</summary>
+      <pre class="mt-2 text-xs leading-5 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">{{ plan | tojson(indent=2) }}</pre>
+    </details>
+  {% endif %}
+</div>

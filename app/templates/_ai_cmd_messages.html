@@ -1,0 +1,58 @@
+<div class="rounded-lg border bg-white">
+  <div class="p-3 border-b flex items-center justify-between">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Conversation</div>
+    <form hx-get="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}"
+          hx-target="#messages" hx-swap="innerHTML">
+      <button class="text-xs px-2 py-1 rounded border hover:bg-slate-50">Refresh</button>
+    </form>
+  </div>
+
+  <div class="p-4 space-y-4">
+    {% for m in messages %}
+      <div class="flex gap-3">
+        <div class="text-slate-400 text-sm w-16">{{ m.role }}</div>
+        <div class="flex-1 prose prose-sm max-w-none">
+          {% if m.meta and m.meta.html %}
+            {{ m.content | safe }}
+          {% else %}
+            <pre class="whitespace-pre-wrap font-sans">{{ m.content }}</pre>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    {% if not messages %}
+      <div class="text-slate-500 text-sm">No messages yet.</div>
+    {% endif %}
+    
+    {% for m in messages %}
+      <div class="mb-3">
+        <div class="text-xs text-slate-500">{{ m.role }}</div>
+        {% if m.meta and m.meta.html %}
+          <div class="prose prose-sm max-w-none">{{ m.content|safe }}</div>
+        {% else %}
+          <div class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</div>
+        {% endif %}
+
+        {# Jika ini pesan assistant yang menandai ada draft plan, render kartu konfirmasi #}
+        {% if m.meta and m.meta.kind == 'plan-draft' %}
+          <div class="mt-2 rounded border bg-amber-50 p-3 text-sm">
+            <div class="font-medium mb-1">Konfirmasi eksekusi?</div>
+            <div class="text-slate-600 mb-2">AI menyusun rencana aksi. Klik <em>Run</em> untuk menjalankan, atau <em>Discard</em> untuk batalkan.</div>
+            <div class="flex items-center gap-2">
+              <button
+                class="px-3 py-1.5 rounded bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+                hx-post="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}/run"
+                hx-target="#ai-conversation"
+                hx-swap="innerHTML">Run</button>
+              <button
+                class="px-3 py-1.5 rounded bg-slate-200 text-slate-800 text-sm hover:bg-slate-300"
+                hx-post="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}/discard"
+                hx-target="#ai-conversation"
+                hx-swap="innerHTML">Discard</button>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</div>

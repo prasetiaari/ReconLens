@@ -8,6 +8,7 @@
 {% set _path = (request.url.path if request and request.url else '') %}
 {% set _auto =
     'insights' if _path.endswith('/ai/insights') else
+    'command' if _path.endswith('/ai/command') else
     ('overview' if _path.endswith('/ai') or _path.endswith('/ai/') else '') %}
 {% set tab = (active_ai_tab or _auto or 'overview') %}
 
@@ -22,5 +23,11 @@
      class="px-3 py-2 rounded-lg text-sm
             {{ 'bg-slate-900 text-white' if tab=='insights' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
     AI Insights
+  </a>
+  
+  <a href="/targets/{{ scope }}/ai/command"
+     class="px-3 py-2 rounded-lg text-sm
+            {{ 'bg-slate-900 text-white' if tab=='command' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    AI Command
   </a>
 </div>
