@@ -5,3 +5,5 @@ httpx[http2]
 tqdm
 python-dateutil
 python-multipart
+dirsearch
+waymore
