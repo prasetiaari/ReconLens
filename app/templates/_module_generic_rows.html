@@ -26,13 +26,21 @@
       <td class="px-4 py-2 text-xs text-slate-500">
         {{ r.last_probe if r.last_probe else '-' }}
       </td>
-      <td class="px-4 py-2">
+      <!--<td class="px-4 py-2">
         {% if r.open_url %}
           <a class="text-blue-700 underline" href="{{ r.open_url }}" target="_blank" rel="noopener">open</a>
         {% else %}
           <span class="text-slate-400">open</span>
         {% endif %}
-      </td>
+      </td>-->
+      <td class="px-4 py-2">
+       
+          <button class="btn-open text-blue-600 hover:underline"
+                data-url={{ r.open_url|tojson }}
+                data-method={{ (r.method or 'GET')|tojson }}>
+          open
+        </button>
+        </td>
     </tr>
   {% endfor %}
 </tbody>

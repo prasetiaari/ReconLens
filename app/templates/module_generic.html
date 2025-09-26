@@ -136,7 +136,83 @@
 
 <!-- Keep filters in pager links -->
 <script>
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest && e.target.closest('.btn-open');
+      if (!btn) return;
+      const url = btn.getAttribute('data-url');
+      const method = (btn.getAttribute('data-method') || 'GET').toUpperCase();
+      openWithMethod(url, method);
+    });
+    
+    function openWithMethod(url, method) {
+  method = (method || 'GET').toUpperCase();
+  if (!url) {
+    console.warn('openWithMethod: no url'); return;
+  }
+  if (method === 'GET') {
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
+  // HTML forms officially support only GET/POST. For other methods you may fallback to POST.
+  const supported = ['GET','POST'];
+  if (!supported.includes(method)) {
+    // fallback to POST with _method if you want, or just use POST
+    method = 'POST';
+  }
+
+  const form = document.createElement('form');
+  form.method = method;
+  form.action = url;
+  form.target = '_blank';
+  form.style.display = 'none';
+  document.body.appendChild(form);
+  form.submit();
+  setTimeout(()=>form.remove(), 1000);
+}
 (function () {
+    function openWithMethod(url, method) {
+  method = (method || 'GET').toUpperCase();
+  try {
+    // Basic validation
+    if (!url || typeof url !== 'string') {
+      console.warn('openWithMethod: invalid url', url);
+      return;
+    }
+
+    if (method === 'GET') {
+      // open as GET in new tab
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+
+    // For non-GET methods, create & submit a form to open result in new tab
+    const form = document.createElement('form');
+    form.method = method;         // "POST", "PUT", ...
+    form.action = url;
+    form.target = '_blank';      // open in new tab/window
+    form.style.display = 'none';
+
+    // If you want to supply a body (e.g., JSON or form fields), you can add hidden inputs here.
+    // For now we submit empty body (typical for many endpoints that accept POST without body)
+    // Example to add hidden field:
+    // const input = document.createElement('input');
+    // input.type = 'hidden';
+    // input.name = 'example';
+    // input.value = 'value';
+    // form.appendChild(input);
+
+    document.body.appendChild(form);
+    form.submit();
+
+    // cleanup
+    setTimeout(() => {
+      form.remove();
+    }, 1000);
+  } catch (err) {
+    console.error('openWithMethod error', err);
+    alert('Failed to open URL — see console for details.');
+  }
+}
   function qsFromForm() {
     const f = document.getElementById('filters');
     if (!f) return '';
