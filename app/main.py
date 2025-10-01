@@ -140,7 +140,7 @@ for r in app.router.routes:
         mod = getattr(r, "endpoint", None)
         mod = getattr(mod, "__module__", "?")
         fn  = getattr(r, "name", "?")
-        print("ROUTE:", r.methods, r.path, "->", mod, "/", fn)
+        #print("ROUTE:", r.methods, r.path, "->", mod, "/", fn)
     except Exception:
         pass
 
