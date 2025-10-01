@@ -43,7 +43,7 @@
     <div class="p-5 space-y-4 text-sm">
       <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-700">
         <div class="font-medium">Active scanning</div>
-        <div>Tool ini akan mengirim request HTTP ke target. Pastikan kamu berizin.</div>
+        <div>This tool will send HTTP requests to the target. Make sure you have permission.</div>
       </div>
 
       <div class="grid grid-cols-1 gap-2">
@@ -121,7 +121,7 @@
 
         <label class="flex items-start gap-2 mt-1">
           <input id="{{ modal_id }}_agree" type="checkbox" class="mt-1 accent-rose-600">
-          <span class="text-slate-600">Saya paham ini adalah active scan dan saya memiliki izin.</span>
+          <span class="text-slate-600">I understand this is an active scan and I have authorization.</span>
         </label>
       </div>
 
@@ -134,10 +134,6 @@
           Cancel
         </button>
       </div>
-
-      <p class="text-xs text-slate-500">UI ini membuka tab baru ke:
-        <code>/targets/{{ scope }}/collect/probe_module?module={{ m }}</code>.
-      </p>
     </div>
   </div>
 </div>
