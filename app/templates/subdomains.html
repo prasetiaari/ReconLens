@@ -173,14 +173,14 @@
 
     <div class="p-5 space-y-4 text-sm">
       <p class="text-slate-600">
-        Pilih sumber untuk mengumpulkan subdomain <span class="font-mono">{{ scope }}</span>:
+        Select a tool to collect subdomains from <span class="font-mono">{{ scope }}</span>:
       </p>
 
       {# Subfinder #}
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
           <div class="font-medium">Subfinder</div>
-          <div class="text-slate-500 text-xs">Cepat, passive sources.</div>
+          <!--<div class="text-slate-500 text-xs">Fast, passive sources.</div>-->
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.subfinder if last_scans is defined else None) or '—' }}
           </div>
@@ -193,7 +193,7 @@
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
           <div class="font-medium">Amass (passive)</div>
-          <div class="text-slate-500 text-xs">Komprehensif, bisa lebih lambat.</div>
+          <!--<div class="text-slate-500 text-xs">Comprehensive, may take longer.</div>-->
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.amass if last_scans is defined else None) or '—' }}
           </div>
@@ -206,7 +206,7 @@
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
           <div class="font-medium">Findomain</div>
-          <div class="text-slate-500 text-xs">Alternatif pasif; sumber berbeda dari subfinder.</div>
+         <!-- <div class="text-slate-500 text-xs">Alternative passive, using different sources than Subfinder.</div>-->
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.findomain if last_scans is defined else None) or '—' }}
           </div>
@@ -216,7 +216,7 @@
       </div>
 
       {# Bruteforce (placeholder aktif) #}
-      <div class="flex items-center justify-between rounded-lg border p-3">
+      <!--<div class="flex items-center justify-between rounded-lg border p-3">
         <div>
           <div class="font-medium">Bruteforce</div>
           <div class="text-slate-500 text-xs">Aktif, gunakan wordlist untuk enumerasi.</div>
@@ -226,12 +226,10 @@
         </div>
         <a href="/targets/{{ scope }}/collect/bruteforce" target="_blank" rel="noopener"
            class="px-3 py-2 rounded-lg bg-slate-100 text-slate-600 text-sm border">Run</a>
-      </div>
+      </div>-->
 
       <p class="text-xs text-slate-500">
-        Proses berjalan di tab baru; hasil otomatis digabung ke
-        <code class="px-1 rounded bg-slate-100">outputs/{{ scope }}/subdomains.txt</code>.
-        Refresh halaman ini setelah selesai untuk melihat pembaruan.
+        Tip: This process will open in a new tab, and you can continue using this application while waiting for it to finish.
       </p>
     </div>
   </div>
