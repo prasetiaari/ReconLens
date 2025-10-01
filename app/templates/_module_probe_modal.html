@@ -58,7 +58,7 @@
           <div class="pt-2 border-t">
             <label class="block text-xs text-slate-500 mb-1">Subdomain</label>
             <select id="{{ modal_id }}_host" class="input w-full">
-              <option value="__all__">(all hosts)</option>
+              <option value="{{ scope }}">(please select host)</option>
               {% for h in host_options %}
                 <option value="{{ h }}">{{ h }}</option>
               {% endfor %}
@@ -171,8 +171,11 @@
       const scopeVal  = {{ scope|tojson }};
       const moduleVal = {{ module|tojson }};
       const tool = moduleVal; // untuk dirsearch & probe_paths: tool == module
-      let url = `/targets/${encodeURIComponent(scopeVal)}/probe/module/${encodeURIComponent(moduleVal)}`;
-
+      if (moduleVal=="dirsearch")
+           path = `/targets/${encodeURIComponent(scopeVal)}/collect/${encodeURIComponent(moduleVal)}?`;
+      else
+           path = `/targets/${encodeURIComponent(scopeVal)}/probe/module/${encodeURIComponent(moduleVal)}`;
+      let url = path;
       {% if (module|lower) == 'dirsearch' %}
         const hostSel = document.getElementById('{{ modal_id }}_host');
         const wordSel = document.getElementById('{{ modal_id }}_wordlist');
