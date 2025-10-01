@@ -26,15 +26,15 @@
   <div class="text-sm font-medium mb-1">Command (hint):</div>
   <textarea class="input w-full font-mono text-[13px]" rows="3" readonly>
 {% if tool == 'gau' -%}
-    gau --verbose {{ scope }}
+    gau --verbose --o  outputs/{{ scope }}/urls.txt {{ scope }}
 {%- elif tool == 'waymore' -%}
-    waymore -i {{ scope }} -o -
+    waymore -i {{ scope }} -mode U -oU outputs/{{ scope }}/urls.txt --verbose
 {%- elif tool == 'subfinder' -%}
     subfinder -d {{ scope }} -silent -all
 {%- elif tool == 'amass' -%}
-    amass enum -passive -d {{ scope }} -o -
+    amass enum -passive -d {{ scope }}
 {%- elif tool == 'findomain' -%}
-    findomain -t {{ scope }} -q
+    findomain --target {{ scope }} --quiet
 {%- elif tool == 'build' -%}
     python -m ReconLens --scope {{ scope }} --input outputs/{{ scope }}/urls.txt --out outputs/{{ scope }}
 {%- elif tool == 'probe_subdomains' -%}
