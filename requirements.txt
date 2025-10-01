@@ -7,3 +7,4 @@ python-dateutil
 python-multipart
 dirsearch
 waymore
+setuptools>=65.0.0
