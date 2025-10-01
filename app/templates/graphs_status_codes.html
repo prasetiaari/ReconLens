@@ -3,13 +3,13 @@
 
 <div class="mb-6">
   <h1 class="text-2xl font-semibold">Status Codes — {{ scope }}</h1>
-  <p class="text-slate-500 text-sm">Ringkasan HTTP status-code per modul, bisa difilter domain/host.</p>
+  <p class="text-slate-500 text-sm">Summary of HTTP status codes per module, can be filtered by domain/host.</p>
 </div>
 
 <form id="filter-form" class="grid grid-cols-12 gap-3 items-end mb-4">
   <!-- Modules multi-select -->
 <div class="col-span-12 md:col-span-4 relative" id="modules-field">
-  <label class="block text-xs text-slate-500 mb-1">Modules (pilih 1+; kosong = semua)</label>
+  <label class="block text-xs text-slate-500 mb-1">Modules</label>
 
   <!-- chips pilihan -->
   <div id="modules-chips" class="flex flex-wrap gap-2 mb-1"></div>
@@ -31,12 +31,12 @@
 </div>
   <div class="col-span-12 md:col-span-3">
     <label class="block text-xs text-slate-500 mb-1">Host contains</label>
-    <input name="host_contains" value="{{ host_contains or '' }}" placeholder="mis. admin"
+    <input name="host_contains" value="{{ host_contains or '' }}" placeholder="e.g. admin"
            class="w-full rounded border px-3 py-2 text-sm">
   </div>
   <div class="col-span-12 md:col-span-3">
     <label class="block text-xs text-slate-500 mb-1">Host exact</label>
-    <input name="host_exact" value="{{ host_exact or '' }}" placeholder="mis. app.example.com"
+    <input name="host_exact" value="{{ host_exact or '' }}" placeholder="e.g. app.example.com"
            class="w-full rounded border px-3 py-2 text-sm">
   </div>
   <div class="col-span-6 md:col-span-1">
