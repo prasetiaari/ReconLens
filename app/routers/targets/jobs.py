@@ -1,0 +1,307 @@
+"""
+Targets Job Management
+----------------------
+
+Handles all long-running background jobs:
+  - Recon tools (gau, waymore, subfinder, amass, dirsearch, etc.)
+  - Job creation, progress streaming (SSE), and cancellation
+  - CLI command builders and subprocess execution
+"""
+
+from __future__ import annotations
+import os, asyncio, json, shlex, signal, shutil
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+from app.deps import get_settings, get_templates
+from ...services.wordlists import resolve_wordlist
+from app.core.urlutils import normalize_host, host_in_scope
+from app.services.exec_tools import build_tool_cmd
+
+from app.core.pathutils import systemish_path
+from app.core.constants import OUTPUTS_DIR
+from .parsers import parse_dirsearch_line
+from .utils import (
+    read_text_lines,
+    merge_urls,
+    merge_hostnames,
+    safe_json_load,
+    update_last_scan,
+    update_url_enrich_from_dirsearch,
+)
+
+router = APIRouter(tags=["Targets (jobs)"])
+
+# ======================================================================
+# In-memory Job Registry
+# ======================================================================
+
+JOBS: Dict[str, Dict[str, Any]] = {}
+"""
+JOBS[job_id] = {
+    "queue": asyncio.Queue[str],
+    "proc": Process,
+    "done": bool,
+    "exit_code": int,
+    "scope": str,
+    "tool": str,
+    "module": Optional[str],
+    "host": Optional[str],
+    "wordlists": Optional[str],
+    "log_path": str,
+    "urls_path": str,
+    "raw_path": str
+}
+"""
+
+# ======================================================================
+# Job Creation / Tracking
+# ======================================================================
+
+def _new_job(scope: str, tool: str, module: str | None = None,
+             host: str | None = None, wordlists: str | None = None) -> str:
+    """Create a new job entry and initialize its async queue."""
+    jid = os.urandom(12).hex()
+    JOBS[jid] = {
+        "queue": asyncio.Queue(),
+        "proc": None,
+        "done": False,
+        "exit_code": None,
+        "scope": scope,
+        "tool": tool,
+        "module": module,
+        "host": host,
+        "wordlists": wordlists,
+    }
+    return jid
+
+
+# ======================================================================
+# Job Runner
+# ======================================================================
+
+async def _run_job(scope: str, tool: str, out_dir: Path, job_id: str):
+    """Main async job runner: executes external tools and streams progress."""
+    job = JOBS[job_id]
+    q: asyncio.Queue[str] = job["queue"]
+    outputs_root = out_dir.parent
+    settings = get_settings(None) if "request" not in locals() else None
+
+    MAX_PREVIEW_LINES = 500
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jobs_dir = out_dir / "__jobs__"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir = out_dir / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = jobs_dir / f"{job_id}.log"
+    tmp_urls = jobs_dir / f"{job_id}.urls"
+    raw_path = raw_dir / f"{tool}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.urls"
+    job.update({"log_path": str(log_path), "urls_path": str(tmp_urls), "raw_path": str(raw_path)})
+
+    async def write_and_flush(f, text: str):
+        f.write(text + "\n")
+        f.flush()
+
+    captured = 0
+    try:
+        cmd = build_tool_cmd(
+            tool,
+            scope,
+            outputs_root,
+            module=job.get("module"),
+            host=job.get("host"),
+            wordlists=job.get("wordlists"),
+            settings=settings or {},
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = systemish_path()
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(outputs_root.parent),
+            env=env,
+        )
+
+        job["proc"] = proc
+        await q.put(f"$ {' '.join(shlex.quote(c) for c in cmd)}\n")
+        await q.put("event: status\ndata: running\n\n")
+
+        assert proc.stdout is not None
+        preview_count = 0
+        preview_capped = False
+        with open(log_path, "w", encoding="utf-8", errors="ignore") as log_f, \
+             open(tmp_urls, "w", encoding="utf-8", errors="ignore") as urls_f, \
+             open(raw_path, "w", encoding="utf-8", errors="ignore") as raw_f:
+            async for raw in proc.stdout:
+                line = raw.decode("utf-8", "ignore").rstrip("\n")
+                await write_and_flush(log_f, line)
+                await write_and_flush(raw_f, line)
+
+                # Capture URLs or Dirsearch hits
+                if tool == "dirsearch":
+                    parsed = parse_dirsearch_line(line)
+                    if parsed:
+                        await write_and_flush(urls_f, parsed["url"])
+                        captured += 1
+                        _update_url_enrich_from_dirsearch(outputs_root, scope, parsed["url"], parsed["code"], parsed["size"])
+                elif "://" in line or tool in ("subfinder", "amass", "findomain"):
+                    if line.strip():
+                        await write_and_flush(urls_f, line.strip())
+                        captured += 1
+
+                # Stream preview
+                if not preview_capped:
+                    preview_count += 1
+                    if preview_count <= MAX_PREVIEW_LINES:
+                        await q.put(line[:200] + "\n")
+                    else:
+                        preview_capped = True
+                        await q.put(f"[info] (preview truncated at {MAX_PREVIEW_LINES} lines)\n")
+
+        rc = await proc.wait()
+        job["exit_code"] = rc
+        await q.put(f"[exit] code={rc}\n")
+
+        # Post-process merges
+        await _handle_merge(tool, scope, out_dir, tmp_urls, captured, q)
+        await q.put("event: status\ndata: done\n\n")
+
+    except Exception as e:
+        await q.put(f"[error] {e}\n")
+        job["exit_code"] = -1
+        await q.put("event: status\ndata: done\n\n")
+    finally:
+        job["done"] = True
+        await q.put("[[DONE]]")
+
+
+async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, captured: int, q: asyncio.Queue[str]):
+    """Handle post-processing of job outputs (merge results, update meta)."""
+    if tool in ("gau", "waymore"):
+        target = out_dir / "urls.txt"
+        before = _read_text_lines(target)
+        _merge_urls(target, tmp_urls)
+        after = _read_text_lines(target)
+        added = max(0, after - before)
+        await q.put(f"[summary] captured={captured}  unique_added={added}  total_now={after}\n")
+
+    elif tool in ("subfinder", "amass", "findomain"):
+        target = out_dir / "subdomains.txt"
+        before = _read_text_lines(target)
+        _merge_hostnames(target, tmp_urls)
+        after = _read_text_lines(target)
+        added = max(0, after - before)
+        _update_last_scan(scope, tool)
+        await q.put(f"[summary] captured={captured}  unique_added={added}  total_now={after}\n")
+
+    elif tool == "build":
+        _update_last_scan(scope, "build")
+        await q.put("[summary] build complete\n")
+
+    elif tool in ("probe_subdomains", "probe_module"):
+        _update_last_scan(scope, tool)
+        await q.put(f"[summary] probe ({tool}) complete\n")
+
+    elif tool == "dirsearch":
+        _update_last_scan(scope, "dirsearch")
+        await q.put(f"[summary] dirsearch processed {captured} lines\n")
+
+
+# ======================================================================
+# Routes
+# ======================================================================
+
+@router.get("/{scope}/collect/{tool}", response_class=HTMLResponse)
+async def collect_console(request: Request, scope: str, tool: str, module: Optional[str] = None):
+    """Render collection console page for a given tool."""
+    templates = get_templates(request)
+    out_dir = OUTPUTS_DIR / scope
+    meta = _safe_json_load(out_dir / "meta.json")
+    last_scans = meta.get("last_scans", {})
+    wordlist = request.query_params.get("wordlist") or "dicc.txt"
+    host = request.query_params.get("host") or ""
+
+    return templates.TemplateResponse("collect_console.html", {
+        "request": request,
+        "scope": scope,
+        "tool": tool,
+        "module": module,
+        "last_scans": last_scans,
+        "host": host,
+        "wordlist": wordlist,
+    })
+
+
+@router.post("/{scope}/collect/{tool}/start")
+async def collect_start(scope: str, tool: str, request: Request):
+    """Start a recon job (gau, waymore, dirsearch, etc.)"""
+    module = request.query_params.get("module")
+    host = request.query_params.get("host") or ""
+    wl_name = request.query_params.get("wordlist") or "dicc.txt"
+
+    if tool == "dirsearch":
+        if not host:
+            return JSONResponse({"ok": False, "error": "host param required"}, status_code=400)
+        wl_path = resolve_wordlist(wl_name)
+        if wl_path is None:
+            wl_name = "dicc.txt"
+
+        if not host_in_scope(host, scope):
+            return JSONResponse({"ok": False, "error": "host not in scope"}, status_code=400)
+
+        jid = _new_job(scope, tool, host=normalize_host(host), wordlists=wl_name)
+    else:
+        jid = _new_job(scope, tool, module=module, host=host)
+
+    out_dir = OUTPUTS_DIR / scope
+    asyncio.create_task(_run_job(scope, tool, out_dir, jid))
+    return JSONResponse({"ok": True, "job_id": jid})
+
+
+@router.post("/{scope}/collect/{tool}/cancel")
+async def collect_cancel(scope: str, tool: str, job: str):
+    """Cancel a running job by sending SIGINT."""
+    info = JOBS.get(job)
+    if not info:
+        return JSONResponse({"ok": False, "error": "job not found"})
+
+    proc = info.get("proc")
+    if proc and proc.returncode is None:
+        try:
+            proc.send_signal(signal.SIGINT)
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    return JSONResponse({"ok": True})
+
+
+@router.get("/{scope}/collect/{tool}/stream")
+async def collect_stream(scope: str, tool: str, job: str):
+    """Stream job output via Server-Sent Events."""
+    info = JOBS.get(job)
+    if not info:
+        raise HTTPException(404, "job not found")
+
+    async def eventgen():
+        q: asyncio.Queue[str] = info["queue"]
+        while True:
+            item = await q.get()
+            if item == "[[DONE]]":
+                yield "data: [[DONE]]\n\n"
+                break
+            if item.startswith("event:"):
+                yield item
+            else:
+                for line in item.splitlines():
+                    yield f"data: {line}\n"
+                yield "\n"
+
+    return StreamingResponse(eventgen(), media_type="text/event-stream")
