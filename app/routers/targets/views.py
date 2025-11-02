@@ -12,12 +12,14 @@ Dependencies:
 
 from __future__ import annotations
 import re
+import shutil, json
+
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, HTTPException, Form
+from fastapi.responses import HTMLResponse, Response
 from app.deps import get_settings, get_templates
 from ..subdomains import subdomains_page, load_enrich
 from ...services.wordlists import list_wordlists
@@ -30,6 +32,7 @@ from .utils import (
 )
 from app.routers.targets.helpers import gather_stats
 from urllib.parse import urlencode
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 router = APIRouter()
 
@@ -290,5 +293,52 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     }
     # backward compatibility for pager
     ctx["pages"] = ctx.get("total_pages", 1)
-
     return templates.TemplateResponse("module_generic.html", ctx)
+
+@router.get("/{scope}/probe/module/{module}", response_class=HTMLResponse)
+async def probe_module_console_alias(request: Request, scope: str, module: str):
+    return RedirectResponse(url=f"/targets/{scope}/collect/probe_module?module={module}")
+
+@router.post("/{scope}/probe/module/{module}/start")
+async def probe_module_start_alias(scope: str, module: str, request: Request):
+    return RedirectResponse(
+        url=f"/targets/{scope}/collect/probe_module/start?module={module}",
+        status_code=307
+    )
+
+@router.get("/{scope}/delete/confirmation", response_class=HTMLResponse)
+async def delete_confirm(request: Request, scope: str):
+    templates = get_templates(request)
+    outputs_root = Path(get_settings(request).OUTPUTS_DIR)
+    scope_path = outputs_root / scope
+    if not scope_path.exists():
+        return HTMLResponse(
+            f"<div class='p-4 text-sm text-rose-600'>Target <code>{scope}</code> not found.</div>",
+            status_code=404
+        )
+    return templates.TemplateResponse(
+        "_confirm_delete.html",
+        {"request": request, "scope": scope}
+    )
+
+@router.post("/{scope}/delete/confirmed", response_class=HTMLResponse)
+async def delete_hard(request: Request, scope: str, confirm: str = Form(...)):
+    outputs_root = Path(get_settings(request).OUTPUTS_DIR)
+    scope_path = outputs_root / scope
+
+    if confirm.strip() != scope:
+        return HTMLResponse(
+            "<div class='p-3 text-sm text-rose-600'>Confirmation does not match.</div>",
+            status_code=400
+        )
+
+    try:
+        if scope_path.exists():
+            shutil.rmtree(scope_path)
+        headers = {"HX-Trigger": json.dumps({"target-deleted": {"scope": scope}})}
+        return Response("", status_code=204, headers=headers)
+    except Exception as e:
+        return HTMLResponse(
+            f"<div class='p-3 text-sm text-rose-600'>Delete failed: {e}</div>",
+            status_code=500
+        )

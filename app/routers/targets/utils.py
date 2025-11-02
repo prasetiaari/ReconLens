@@ -48,29 +48,6 @@ def read_text_lines(p: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Meta Handling
-# ---------------------------------------------------------------------------
-
-def save_meta(scope: str, outputs_root: Path, **updates):
-    """Update or create meta.json inside outputs/<scope>/."""
-    out_dir = outputs_root / scope
-    meta_path = out_dir / "meta.json"
-    meta = safe_json_load(meta_path)
-    for k, v in updates.items():
-        if isinstance(v, dict) and isinstance(meta.get(k), dict):
-            meta[k].update(v)
-        else:
-            meta[k] = v
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def update_last_scan(scope: str, tool: str, outputs_root: Path):
-    """Record last scan timestamp for the given tool."""
-    utc = datetime.now(timezone.utc).isoformat()
-    save_meta(scope, outputs_root, last_scans={tool: utc})
-
-
-# ---------------------------------------------------------------------------
 # Merge Utilities
 # ---------------------------------------------------------------------------
 
