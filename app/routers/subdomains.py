@@ -328,8 +328,8 @@ async def subdomains_page(scope: str, request: Request):
     #print(f"[debug] subdomains_page: file={sub_file} total_hosts={total} page={page}/{total_pages}")
     _decorate_enrich_for_hosts(enrich, rows)
     last_scans = build_last_scans(settings.OUTPUTS_DIR, scope)
-    from .targets import _gather_stats  # import di dalam fungsi
-    stats_pack = _gather_stats(scope)
+    from .targets.helpers import gather_stats  # import di dalam fungsi
+    stats_pack = gather_stats(scope)
     stats = stats_pack["stats"]
     stats_map = {row["module"]: row for row in stats}
     ctx = {
