@@ -374,7 +374,7 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
     wordlist = request.query_params.get("wordlist") or "dicc.txt"
     host = request.query_params.get("host") or ""
 
-    return templates.TemplateResponse("collect_console.html", {
+    return templates.TemplateResponse("admin/collect_console.html", {
         "request": request,
         "scope": scope,
         "tool": tool,
