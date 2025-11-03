@@ -11,5 +11,5 @@ __pycache__/
 outputs/
 
 .idea/
-
-/.jinja_cache/
+.DS_Store
+.jinja_cache/
