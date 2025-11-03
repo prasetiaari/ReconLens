@@ -165,6 +165,21 @@ async def _run_job(
         repo_root    = outputs_root.parent
         project_root = repo_root.parent
 
+        # --- prepare special outfile for dirsearch (keep outputs inside project) ---
+        dirsearch_outfile = None
+
+
+        if tool == "dirsearch":
+            # try resolve host from job registry if not present
+            host = (job.get("host") or "").strip().lower()
+            if not host and job_id in JOBS:
+                host = (JOBS[job_id].get("host") or "").strip().lower()
+
+            # safe internal output location: outputs/<scope>/dirsearch/<host>/<job_id>.txt
+            host_dir = out_dir / "dirsearch" / host
+            host_dir.mkdir(parents=True, exist_ok=True)
+            dirsearch_outfile = host_dir / f"{job_id}.txt"
+
         # Build command (pastikan build_tool_cmd("build", ...) memang return ['python', '-m', 'ReconLens', ...])
         cmd = build_tool_cmd(
             tool,
@@ -174,6 +189,7 @@ async def _run_job(
             host=job.get("host"),
             wordlists=job.get("wordlists"),
             settings=settings,
+            dirsearch_outfile=dirsearch_outfile,
         )
 
         # Env & CWD sama seperti “old”
@@ -214,11 +230,7 @@ async def _run_job(
 
                 # Capture heuristics (tetap seperti sebelumnya)
                 if tool == "dirsearch":
-                    parsed = parse_dirsearch_line(line)
-                    if parsed:
-                        urls_f.write(parsed["url"] + "\n"); urls_f.flush()
-                        captured += 1
-                        update_url_enrich_from_dirsearch(outputs_root, scope, parsed["url"], parsed["code"], parsed["size"])
+                    pass
                 elif "://" in line or tool in ("subfinder", "amass", "findomain"):
                     if line.strip():
                         urls_f.write(line.strip() + "\n"); urls_f.flush()
@@ -237,7 +249,14 @@ async def _run_job(
         await q.put(f"\n[exit] code={rc}\n")
 
         # Merge & summaries (sama seperti dulu)
-        await _handle_merge(tool, scope, out_dir, tmp_urls, captured, q, module_name=job.get("module"),job_id=job_id, host=job.get("host"),)
+        await _handle_merge(
+            tool, scope, out_dir, tmp_urls, captured, q,
+            module_name=job.get("module"),
+            job_id=job_id,
+            host=job.get("host"),
+            dirsearch_outfile=dirsearch_outfile,
+            outputs_root=outputs_root,
+            )
 
         await q.put("event: status\ndata: done\n\n")
 
@@ -254,8 +273,11 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
                         q: asyncio.Queue[str],
                         module_name: str | None = None,
                         job_id: str | None = None,
-                        host: str | None = None,):
-    outputs_root = out_dir.parent
+                        host: str | None = None,
+                        outputs_root: Optional[Path] = None,
+                        dirsearch_outfile: Optional[Path] = None,
+                        ):
+    if outputs_root==None: outputs_root = out_dir.parent
     if tool in ("gau", "waymore"):
         target = out_dir / "urls.txt"
         before = read_text_lines(target)
@@ -288,43 +310,55 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
     elif tool == "dirsearch":
         # resolve host
         if not host and job_id:
-            # fallback to JOBS registry if needed
             host = (JOBS.get(job_id, {}).get("host") or "").strip().lower()
         host = (host or "").strip().lower()
-
-        # 1) store raw job report under outputs/<scope>/dirsearch/<host>/
+        # Folder host di outputs/<scope>/dirsearch/<host>/
         host_dir = out_dir / "dirsearch" / host
         host_dir.mkdir(parents=True, exist_ok=True)
+        # Sumber hasil: pakai file -o jika ada, kalau tidak fallback ke tmp_urls
+        src_file = None
+        try:
+            # dirsearch_outfile diset di _run_job saat build cmd; kalau ada, pakai itu
+            if dirsearch_outfile:
+                p = Path(dirsearch_outfile)
+                if p.exists():
+                    src_file = p
+        except NameError:
+            # variabel tidak ada → fallback ke tmp_urls
+            pass
+        if src_file is None:
+            src_file = Path(tmp_urls)
+
+        # Simpan laporan job (selalu .txt) → konsisten dengan versi lama
         job_report = host_dir / f"{(job_id or 'job')}.txt"
         try:
-            os.replace(tmp_urls, job_report)
+            # copy isi dari sumber ke job_report (bukan replace tmp_urls lagi)
+            if src_file.exists():
+                shutil.copy2(src_file, job_report)
+            else:
+                job_report.touch()
         except Exception:
-            pass
-
-        # 2) merge all host findings -> found.txt
+            # jangan fail keras; tetap lanjut merge
+            job_report.touch()
+        # 2) merge semua temuan host ini → found.txt
         found = host_dir / "found.txt"
         before_host = read_text_lines(found)
         merge_urls(found, job_report)
         after_host = read_text_lines(found)
-
-        # 3) merge aggregate -> outputs/<scope>/dirsearch.txt
+        # 3) merge seluruh temuan → outputs/<scope>/dirsearch.txt
         agg = out_dir / "dirsearch.txt"
         before_agg = read_text_lines(agg)
         merge_urls(agg, job_report)
         after_agg = read_text_lines(agg)
-
-        # 4) update last markers
-        update_dirsearch_last(outputs_root, scope, host)  # writes __cache/dirsearch_last.json
+        # 4) update penanda waktu
+        update_dirsearch_last(outputs_root, scope, host)  # __cache/dirsearch_last.json
         update_last_scan(scope, "dirsearch", outputs_root)
-
         await q.put(
             f"[summary] captured={captured}  unique_added_host={max(0, after_host - before_host)}  host_total={after_host}\n"
         )
         await q.put(
             f"[summary] merged (aggregate) → {agg}  unique_added_agg={max(0, after_agg - before_agg)}  agg_total={after_agg}\n"
         )
-
-
 
 # ======================================================================
 # Routes
