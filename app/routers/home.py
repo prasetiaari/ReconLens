@@ -11,7 +11,7 @@ def home(request: Request):
     settings = get_settings(request)
     templates = get_templates(request)
     scopes = list_scopes(settings.OUTPUTS_DIR)
-    return templates.TemplateResponse("home.html", {
+    return templates.TemplateResponse("layout/home.html", {
         "request": request,
         "scopes": scopes,
     })

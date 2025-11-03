@@ -12,3 +12,4 @@ outputs/
 
 .idea/
 
+/.jinja_cache/

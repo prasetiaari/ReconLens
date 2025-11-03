@@ -333,7 +333,7 @@ def ip_clusters_page(scope: str, request: Request):
         "data_url": f"/targets/{scope}/graphs/subdomains/ip-clusters",
         "ego_url_base": f"/targets/{scope}/graphs/subdomains/ip",
     }
-    return templates.TemplateResponse("graphs_subdomains.html", ctx)
+    return templates.TemplateResponse("graphs/subdomains.html", ctx)
     
 @router.get("/targets/{scope}/graphs/subdomains/ip-clusters", response_class=JSONResponse)
 def ip_clusters(

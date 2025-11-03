@@ -8,7 +8,7 @@ from app.core.settings import get_settings
 
 router = APIRouter()
 
-@router.get("/targets/{scope}/graphs/subdomains/ip-clusters", response_class=HTMLResponse)
+@router.get("/targets/{scope}/graphs/subdomains/ip-clusters/page", response_class=HTMLResponse)
 def subdomains_ip_clusters_page(scope: str, request: Request):
     templates = get_templates(request)
     settings = get_settings(request)

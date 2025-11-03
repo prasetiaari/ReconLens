@@ -14,4 +14,4 @@ router = APIRouter()
 @router.get("/about", response_class=HTMLResponse)
 async def about_page(request: Request):
     T = get_templates(request)
-    return T.TemplateResponse("about.html", {"request": request})
+    return T.TemplateResponse("layout/about.html", {"request": request})
