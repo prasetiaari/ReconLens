@@ -34,7 +34,7 @@
 
   <!-- numeric pager -->
   <div class="flex items-center gap-2">
-    {% set prev_href = page_url ~ '?page=' ~ (p-1) ~ '&page_size=' ~ ps ~ xq %}
+    {% set prev_href = page_url ~ '?page=' ~ (p-1) ~ '&page_size=' ~ ps ~ xq|safe %}
     <a href="{{ prev_href }}"
        class="px-3 py-1 rounded-md border transition
               {{ 'text-slate-400 border-slate-200 pointer-events-none cursor-not-allowed' if p<=1 else 'hover:bg-slate-50 border-slate-300' }}">
@@ -50,12 +50,12 @@
     {% if start < 1 %}{% set start = 1 %}{% endif %}
 
     {% if start > 1 %}
-      <a href="{{ page_url }}?page=1&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">1</a>
+      <a href="{{ page_url }}?page=1&page_size={{ ps }}{{ xq|safe }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">1</a>
       {% if start > 2 %}<span class="px-2 text-slate-400">…</span>{% endif %}
     {% endif %}
 
     {% for n in range(start, end + 1) %}
-      {% set href = page_url ~ '?page=' ~ n ~ '&page_size=' ~ ps ~ xq %}
+      {% set href = page_url ~ '?page=' ~ n ~ '&page_size=' ~ ps ~ xq|safe %}
       {% if n == p %}
         <span class="px-3 py-1 rounded-md bg-slate-900 text-white border border-slate-900">{{ n }}</span>
       {% else %}
@@ -65,10 +65,10 @@
 
     {% if end < tp %}
       {% if end < tp-1 %}<span class="px-2 text-slate-400">…</span>{% endif %}
-      <a href="{{ page_url }}?page={{ tp }}&page_size={{ ps }}{{ xq }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">{{ tp }}</a>
+      <a href="{{ page_url }}?page={{ tp }}&page_size={{ ps }}{{ xq|safe }}" class="px-3 py-1 rounded-md border hover:bg-slate-50 border-slate-300">{{ tp }}</a>
     {% endif %}
 
-    {% set next_href = page_url ~ '?page=' ~ (p+1) ~ '&page_size=' ~ ps ~ xq %}
+    {% set next_href = page_url ~ '?page=' ~ (p+1) ~ '&page_size=' ~ ps ~ xq|safe %}
     <a href="{{ next_href }}"
        class="px-3 py-1 rounded-md border transition
               {{ 'text-slate-400 border-slate-200 pointer-events-none cursor-not-allowed' if p>=tp else 'hover:bg-slate-50 border-slate-300' }}">

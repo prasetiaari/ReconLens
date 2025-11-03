@@ -1,10 +1,11 @@
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block title %}{{ scope }} · Pentest URLs Viewer{% endblock %}
 
 {% block content %}
 {% set active = "overview" %}
-{% include "_target_tabs.html" with context %}
-
+{% set dash = dash|default({}) %}
+{% set last_scans = dash.get('last_scans', {}) %}
+{% include "targets/partials/_target_tabs.html" %}
 {# Toolbar kecil (muncul kalau sudah ada urls.txt) #}
 {% if urls_count and urls_count > 0 %}
   <div class="max-w-6xl mx-auto mt-3 mb-4 flex items-center justify-between">
@@ -24,11 +25,8 @@
     </div>
   </div>
 {% endif %}
-<!--
-<div class="grid">
-  {#% include "_summary_cards.html" with context %#}
-</div>
--->
+{% include "targets/partials/_summary_cards.html" %}
+
 
 {#% include "_ai_suggestions.html" with context %}
 
@@ -164,7 +162,7 @@
                 <span class="text-sm font-normal text-slate-400">lines</span>
               </div>
               <p class="text-xs text-slate-500">
-                Last scan: {{ (dash.last_scans.get('dirsearch') or '-')[:19] }}
+                Last scan: {{ (last_scans.get('subdomains') or '-')[:19] }}
               </p>
             </div>
             <div class="text-right text-xs text-slate-400">
@@ -249,7 +247,7 @@
                   <span class="text-sm font-normal text-slate-400">lines</span>
                 </div>
                 <p class="text-xs text-slate-500">
-                  Last probe: {{ (dash.last_scans.get(st.module) or '-')[:19] }}
+                  Last scan: {{ (last_scans.get('subdomains') or '-')[:19] }}
                 </p>
               </div>
               <div class="text-right text-xs text-slate-400">

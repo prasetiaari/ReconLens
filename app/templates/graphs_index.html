@@ -1,8 +1,8 @@
 {# app/templates/graphs_index.html #}
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block content %}
   {% set active = 'graphs' %}
-  {% include "_target_tabs.html" with context %}
+  {% include "targets/partials/_target_tabs.html" with context %}
 
   <div class="mb-6">
     <h1 class="text-2xl font-semibold">Graphs — {{ scope }}</h1>
