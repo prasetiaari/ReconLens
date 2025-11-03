@@ -125,6 +125,7 @@ def build_tool_cmd(
     host: str | None = None,
     wordlists: str | None = None,
     settings: Optional[dict] = None,
+    dirsearch_outfile: Optional[Path] = None,
 ) -> list[str]:
     """
     Build the CLI command for external tools and internal ReconLens modules.
@@ -207,7 +208,7 @@ def build_tool_cmd(
         exe = resolve_external_binary("dirsearch", cfg)
         wl  = wordlists or "dicc.txt"
         from app.services.wordlists import get_wordlists_dir  # local import avoids cycle
-        return [
+        cmd = [
             exe, "-u", f"https://{host}",
             "-w", f"{get_wordlists_dir()}/{wl}",
             "--format=simple",
@@ -216,6 +217,11 @@ def build_tool_cmd(
             "--random-agent",
             "--quiet",
         ]
+        # Write results to a controlled file under outputs/, so dirsearch
+        # doesn't create its own folders elsewhere.
+        if dirsearch_outfile:
+            cmd += ["-o", str(dirsearch_outfile)]
+        return cmd
 
     # --- passive subdomain collectors ---
     if tool == "subfinder":
