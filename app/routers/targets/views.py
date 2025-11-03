@@ -60,7 +60,7 @@ async def target_detail(request: Request, scope: str):
     }
 
     templates = get_templates(request)
-    return templates.TemplateResponse("target_detail.html", ctx)
+    return templates.TemplateResponse("targets/overview.html", ctx)
 
 
 @router.get("/{scope}/{module}", response_class=HTMLResponse)
@@ -293,7 +293,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     }
     # backward compatibility for pager
     ctx["pages"] = ctx.get("total_pages", 1)
-    return templates.TemplateResponse("module_generic.html", ctx)
+    return templates.TemplateResponse("targets/module_generic.html", ctx)
 
 @router.get("/{scope}/probe/module/{module}", response_class=HTMLResponse)
 async def probe_module_console_alias(request: Request, scope: str, module: str):

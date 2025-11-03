@@ -14,8 +14,11 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  {% block head_extra %}{% endblock %}
 </head>
 <body class="bg-slate-50 text-slate-800">
+  {% block toolbar %}{% endblock %}
+  {% block modals %}{% endblock %}
   <header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-10">
   <div class="max-w-6xl mx-auto flex items-center justify-between">
     <div class="flex items-center space-x-3">

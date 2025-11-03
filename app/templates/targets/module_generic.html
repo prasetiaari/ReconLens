@@ -1,8 +1,12 @@
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
+
+{% block toolbar %}
+  {# for form filters #}
+{% endblock %}
 
 {% block content %}
 {% set active = module_name %}
-{% include "_target_tabs.html" with context %}
+{% include "targets/partials/_target_tabs.html" %}
 
 <!-- FILTERS -->
 <form id="filters"
@@ -100,8 +104,8 @@
   {% set total_pages = pages %}
   {% set current_page = page %}
   {% set page_size = limit %}
-  {% include "_pager.html" %}
-  
+  {% include "components/_pager.html" %}
+
   <!-- untuk tombol reprobe/redirsearch/-->
 <div class="col-span-6 md:col-span-2 flex gap-3 items-end justify-end">
 {# mapping untuk partial #}
@@ -109,7 +113,7 @@
 {% set lines = total %}
 {% set host_options = (discovery_host_options if discovery_host_options else host_options) %}
 
-{% include "_module_probe_modal.html" %}
+{% include "components/_module_probe_modal.html" %}
 </div>
 
   <div class="overflow-x-auto rounded border bg-white">
@@ -126,12 +130,12 @@
         </tr>
       </thead>
       <tbody>
-        {% include "_module_generic_rows.html" %}
+        {% include "targets/partials/_module_generic_rows.html" %}
       </tbody>
     </table>
   </div>
 
-  {% include "_pager.html" %}
+  {% include "components/_pager.html" %}
 </div>
 
 <!-- Keep filters in pager links -->
@@ -143,7 +147,7 @@
       const method = (btn.getAttribute('data-method') || 'GET').toUpperCase();
       openWithMethod(url, method);
     });
-    
+
     function openWithMethod(url, method) {
   method = (method || 'GET').toUpperCase();
   if (!url) {
