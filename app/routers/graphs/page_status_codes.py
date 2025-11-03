@@ -27,4 +27,4 @@ def status_codes_page(scope: str, request: Request):
         "host_contains": host_contains,
         "host_exact": host_exact,
     }
-    return templates.TemplateResponse("graphs_status_codes.html", ctx)
+    return templates.TemplateResponse("graphs/status_codes.html", ctx)
