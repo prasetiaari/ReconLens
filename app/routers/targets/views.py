@@ -319,7 +319,7 @@ async def delete_confirm(request: Request, scope: str):
             status_code=404
         )
     return templates.TemplateResponse(
-        "_confirm_delete.html",
+        "targets/partials/_confirm_delete.html",
         {"request": request, "scope": scope}
     )
 
