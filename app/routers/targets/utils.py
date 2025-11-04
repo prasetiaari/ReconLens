@@ -299,7 +299,9 @@ def gather_stats(scope: str) -> dict:
             subdomains_lines = lines
             row["hosts"] = lines
         stats_list.append(row)
-
+    subdomains_path = out_dir / "subdomains.txt"
+    if subdomains_path.exists():
+        subdomains_lines = count_lines(subdomains_path)
     # 3) baca meta.json kalau ada
     meta = safe_json_load(out_dir / "meta.json")
     last_scans = meta.get("last_scans", {})

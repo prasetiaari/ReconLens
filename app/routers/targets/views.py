@@ -47,7 +47,11 @@ async def target_detail(request: Request, scope: str):
     urls_count = stats_pack["urls_count"]
     dash = stats_pack["dash"]
 
-    total_lines = sum((s.get("lines") or 0) for s in stats)
+    total_lines = sum(
+        (s.get("lines") or 0)
+        for s in stats
+        if s.get("module") not in ("urls",) and s.get("file") not in ("urls.txt",)
+    )
     stats_map = {row["module"]: row for row in stats}
 
     ctx = {
