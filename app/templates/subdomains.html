@@ -69,10 +69,10 @@
       <thead class="bg-slate-100 text-slate-700">
         <tr class="bg-slate-100 text-slate-600 text-sm">
           <th class="px-4 py-2 text-left w-[36ch]">URL</th>
-          <th class="px-12 py-2 text-left">status</th>
-          <th class="px-4 py-2 text-left">last_probe</th>
-          <th class="px-4 py-2 text-left">response_code</th>
-          <th class="px-4 py-2 text-left">response_size</th>
+          <th class="px-12 py-2 text-left">Status</th>
+          <th class="px-4 py-2 text-left">Last Probe</th>
+          <th class="px-4 py-2 text-left">Response Code</th>
+          <th class="px-4 py-2 text-left">Ip Address</th>
           <th class="p-3 text-left max-w-[20ch]">title</th>
           <th class="px-4 py-2">Last Dirsearch</th> 
           <th class="px-4 py-2 text-left">action</th>
@@ -109,11 +109,9 @@
         {{ rec.get('code') if rec and rec.get('code') is not none else '-' }}
       </td>
 
-      <!-- Size (KB) -->
+      <!-- IP Address -->
       <td class="px-4 py-2">
-        {% if rec and rec.get('size') is not none %}
-          {{ (rec.get('size')/1024)|round(1) }} KB
-        {% else %}-{% endif %}
+          {{ ip_map.get(host) or '-' }}
       </td>
 
       <!-- Title -->

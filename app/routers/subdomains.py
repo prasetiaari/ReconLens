@@ -163,21 +163,6 @@ def _coerce_ts(value: Any) -> datetime | None:
         except Exception:
             return None
     return None
-def _time_ago_from_any(value: Any) -> str:
-    dt = _coerce_ts(value)
-    if not dt:
-        return "-"
-    now = datetime.now(timezone.utc)
-    delta = (now - dt).total_seconds()
-    if delta < 1:
-        return "now"
-    if delta < 60:
-        return f"{int(delta)}s ago"
-    if delta < 3600:
-        return f"{int(delta//60)}m ago"
-    if delta < 86400:
-        return f"{int(delta//3600)}h ago"
-    return f"{int(delta//86400)}d ago"
     
 def _parse_iso(ts: str) -> datetime | None:
     if not ts:
@@ -190,38 +175,6 @@ def _parse_iso(ts: str) -> datetime | None:
     except Exception:
         return None
 
-def _time_ago(ts: str) -> str:
-    dt = _parse_iso(ts)
-    if not dt:
-        return "-"
-    now = datetime.now(timezone.utc)
-    if not dt.tzinfo:
-        dt = dt.replace(tzinfo=timezone.utc)
-    delta = (now - dt).total_seconds()
-    if delta < 1:
-        return "now"
-    if delta < 60:
-        return f"{int(delta)}s ago"
-    if delta < 3600:
-        return f"{int(delta // 60)}m ago"
-    if delta < 86400:
-        return f"{int(delta // 3600)}h ago"
-    return f"{int(delta // 86400)}d ago"
-
-def _decorate_last_probe(enrich: dict[str, dict], hosts: list[str]) -> None:
-    """
-    Mutasi in-memory: set rec['last_probe'] sebagai string 'ago'.
-    Ambil sumber dari rec['last_probe'] (epoch/ISO) atau fallback rec['ts'].
-    """
-    for h in hosts:
-        rec = enrich.get(h)
-        if not rec:
-            continue
-        raw = rec.get("last_probe")
-        if raw is None:
-            raw = rec.get("ts")
-        rec["last_probe"] = _time_ago_from_any(raw)
-            
 def _alive_flag(req: Request) -> bool:
     v = (req.query_params.get("alive") or "").lower()
     return v in ("1", "true", "on", "yes")
@@ -327,11 +280,21 @@ async def subdomains_page(scope: str, request: Request):
     # opsional: debug ke console
     #print(f"[debug] subdomains_page: file={sub_file} total_hosts={total} page={page}/{total_pages}")
     _decorate_enrich_for_hosts(enrich, rows)
-    last_scans = build_last_scans(settings.OUTPUTS_DIR, scope)
-    from .targets.utils import gather_stats  # import di dalam fungsi
-    stats_pack = gather_stats(scope)
-    stats = stats_pack["stats"]
-    stats_map = {row["module"]: row for row in stats}
+
+    #ip address
+    ip_map: dict[str, str] = {}
+    rollup_path = outputs_dir / scope / "__cache" / "rollup_group_by_ip.json"
+    if rollup_path.exists():
+        try:
+            data = json.loads(rollup_path.read_text(encoding="utf-8"))
+            for item in data:  # each item is {"ip": "...", "hosts": [...]}
+                ip = item.get("ip")
+                for h in item.get("hosts", []):
+                    host = h.get("host")
+                    if host and ip and host not in ip_map:
+                        ip_map[host] = ip
+        except Exception:
+            ip_map = {}
     ctx = {
         "request": request,
         "scope": scope,
@@ -342,104 +305,16 @@ async def subdomains_page(scope: str, request: Request):
         "alive": alive,
         "rows": rows,
         "total": total,
-        "last_scans": last_scans,
         "total_pages": total_pages,
         "has_prev": page > 1,
         "has_next": page < total_pages,
         "enrich": enrich,
-        "stats": stats,
-        "stats_map": stats_map,
         "module_name": "subdomains",
         "dirsearch_last": dir_last,
         "dirsearch_counts": dir_counts,
+        "ip_map": ip_map,
     }
-    return templates.TemplateResponse("subdomains.html", ctx)
-
-# OPTIONAL: kalau kamu masih butuh endpoint rows-only
-async def subdomains_rows(scope: str, request: Request):
-    settings  = get_settings(request)
-    templates = get_templates(request)
-
-    q         = request.query_params.get("q") or ""
-    page      = int(request.query_params.get("page") or 1)
-    page_size = int(request.query_params.get("page_size") or 100)
-    alive     = _alive_flag(request)
-
-    outputs_dir = Path(settings.OUTPUTS_DIR)
-    page_url    = f"/targets/{scope}/subdomains"
-
-    sub_file = _resolve_subdomains_file(outputs_dir, scope, settings.MODULES)
-    enrich   = load_enrich(outputs_dir, scope) or {}
-    
-    # NEW
-    dir_last_raw = load_dirsearch_last(outputs_dir, scope)
-    dir_last = {h: _fmt_local_short(ts) for h, ts in dir_last_raw.items()}
-    dir_counts = load_dirsearch_counts(outputs_dir, scope)
-    
-    it = _iter_hosts_filtered(sub_file, q, enrich, alive_only=alive)
-    rows, total, total_pages, has_prev, has_next = _paginate_iter(it, page, page_size)
-
-    # ---- inject dekorasi ke setiap record enrich yang dipakai di tabel ----
-    from datetime import datetime, timezone
-
-    def _fmt_last_probe(val):
-        if not val:
-            return "-"
-        try:
-            # dukung epoch int/float atau ISO string
-            if isinstance(val, (int, float)):
-                dt = datetime.fromtimestamp(int(val), tz=timezone.utc)
-            else:
-                dt = datetime.fromisoformat(str(val))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-            # samakan gaya dengan modul lain (YYYY-MM-DD HH:MM:SS)
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return str(val)
-
-    # hiasan: size → KB (angka dan string) biar bisa dipakai bebas di template
-    def _fmt_kb(n):
-        try:
-            if n is None:
-                return None, "-"
-            kb = float(n) / 1024.0
-            return kb, f"{kb:.1f} KB"
-        except Exception:
-            return None, "-"
-
-    # hanya dekorasi host yang tampil di halaman (hemat)
-    for host in rows:
-        rec = enrich.get(host)
-        if not rec:
-            continue
-        # last_probe yang sudah diformat
-        rec["last_probe_fmt"] = _fmt_last_probe(rec.get("last_probe"))
-        # size yang sudah diubah ke KB
-        kb_val, kb_str = _fmt_kb(rec.get("size"))
-        rec["size_kb"]  = kb_val     # angka (mis. 6.0)
-        rec["size_fmt"] = kb_str     # string (mis. "6.0 KB")
-
-    # (opsional) tetap panggil util existing kalau kamu masih pakai di tempat lain
-    # _decorate_last_probe(enrich, rows)
-
-    ctx = {
-        "request": request,
-        "scope": scope,
-        "page_url": page_url,
-        "q": q,
-        "page": page,
-        "page_size": page_size,
-        "alive": alive,
-        "rows": rows,                     # list of hosts
-        "total": total,
-        "total_pages": total_pages,
-        "has_prev": has_prev,
-        "has_next": has_next,
-        "enrich": enrich,                 # sekarang tiap rec punya last_probe_fmt & size_fmt
-        "dirsearch_last": dir_last,
-        "dirsearch_counts": dir_counts,
-    }
+    print(dir_counts)
     return templates.TemplateResponse("subdomains.html", ctx)
 
 @router.get("/targets/{scope}/dirsearch/{host}", response_class=HTMLResponse)
@@ -478,7 +353,7 @@ async def dirsearch_view(scope: str, host: str, request: Request):
     rows = rows_all[start:end]
 
     # Reuse module_generic.html
-    return templates.TemplateResponse("module_generic.html", {
+    return templates.TemplateResponse("targets/module_generic.html", {
         "request": request,
         "scope": scope,
         "module": f"dirsearch:{host}",
