@@ -10,7 +10,8 @@
 {% if urls_count and urls_count > 0 %}
   <div class="max-w-6xl mx-auto mt-3 mb-4 flex items-center justify-between">
     <div class="text-sm text-slate-500">
-      URL corpus: <span class="font-medium text-slate-700">{{ "{:,}".format(urls_count) }}</span> lines
+      <!--URL corpus: <span class="font-medium text-slate-700">{{ "{:,}".format(urls_count) }}</span> lines-->
+        Scope : {{ scope }}
     </div>
     <div class="flex items-center gap-4">
       <button id="rebuildBtn"   type="button" class="text-xs text-slate-500 hover:text-slate-700 hover:underline">
@@ -112,7 +113,7 @@
         <div class="space-y-1">
           <div class="text-sm uppercase tracking-wide text-slate-500">subdomains</div>
           <div class="text-2xl font-semibold">
-            {{ (sub.hosts if sub and sub.hosts is not none else (sub.lines if sub else 0)) }}
+              {{ ("{:,}".format(sub.lines) if sub else 0)}}
             <span class="text-sm font-normal text-slate-400">hosts</span>
           </div>
           <p class="text-xs text-slate-500">
@@ -247,7 +248,7 @@
                   <span class="text-sm font-normal text-slate-400">lines</span>
                 </div>
                 <p class="text-xs text-slate-500">
-                  Last scan: {{ (last_scans.get('subdomains') or '-')[:19] }}
+                  Last scan: {{ (last_scans.get(key) or '-')[:19] }}
                 </p>
               </div>
               <div class="text-right text-xs text-slate-400">

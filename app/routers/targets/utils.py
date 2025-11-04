@@ -264,64 +264,195 @@ def list_category_files(scope: str, outputs_root: Path) -> List[str]:
             ordered.append(k)
     return ordered
 
-
-def gather_stats(scope: str, outputs_root: Path) -> Dict[str, Any]:
-    """
-    Gather per-module stats and dashboard metrics for target overview page.
-    Returns:
-        {
-            "stats": [ {module, file, lines, size_bytes}, ... ],
-            "urls_count": int,
-            "dash": dict
-        }
-    """
-    out = []
-    out_dir = outputs_root / scope
+OUTPUTS_DIR = Path("outputs")
+def gather_stats(scope: str) -> dict:
+    out_dir = OUTPUTS_DIR / scope
     if not out_dir.exists():
-        return {"stats": [], "urls_count": 0, "dash": {}}
+        return {
+            "stats": [],
+            "urls_count": 0,
+            "dash": {
+                "totals": {},
+                "status_counts": {},
+                "ctypes": {},
+                "last_scans": {},
+            },
+        }
 
+    # 1) hitung urls.txt
     urls_path = out_dir / "urls.txt"
-    urls_count = read_text_lines(urls_path)
-    modules = list_category_files(scope, outputs_root)
+    urls_count = count_lines(urls_path)
 
-    for mod in modules:
-        p = out_dir / f"{mod}.txt"
-        lines, size = stat_file(p)
-        row = {"module": mod, "file": p.name, "lines": lines, "size_bytes": size}
+    # 2) kumpulkan semua file .txt di outputs/<scope> (ini modul2)
+    stats_list = []
+    subdomains_lines = 0
+    for p in sorted(out_dir.glob("*.txt")):
+        mod = p.stem.lower()
+        lines = count_lines(p)
+        row = {
+            "module": mod,
+            "file": p.name,
+            "lines": lines,
+            "size_bytes": p.stat().st_size if p.exists() else 0,
+        }
         if mod == "subdomains":
+            subdomains_lines = lines
             row["hosts"] = lines
-        out.append(row)
+        stats_list.append(row)
 
-    # Ensure subdomains always first
-    sub_p = out_dir / "subdomains.txt"
-    sub_lines, sub_bytes = stat_file(sub_p)
-    replaced = False
-    for row in out:
-        if row.get("module") == "subdomains":
-            row.update({
-                "file": sub_p.name,
-                "lines": sub_lines,
-                "hosts": sub_lines,
-                "size_bytes": sub_bytes,
-            })
-            replaced = True
-            break
-    if not replaced:
-        out.insert(0, {
-            "module": "subdomains",
-            "file": sub_p.name,
-            "lines": sub_lines,
-            "hosts": sub_lines,
-            "size_bytes": sub_bytes,
-        })
-
+    # 3) baca meta.json kalau ada
     meta = safe_json_load(out_dir / "meta.json")
+    last_scans = meta.get("last_scans", {})
+    status_counts = meta.get("status_counts", {})
+    ctypes = meta.get("ctypes", {})
+
+    # 4) ambil timestamp paling baru dari semua last_scans
+    last_probe_iso = None
+    if last_scans:
+        try:
+            last_probe_iso = max(last_scans.values())
+        except Exception:
+            last_probe_iso = None
+
+    # 4) bangun dash yang dipakai template
+
+    agg = load_http_aggregates(OUTPUTS_DIR, scope)
+    live_urls = agg["live_urls"]
     dash = {
-        "totals": meta.get("totals", {}),
-        "status_counts": meta.get("status_counts", {}),
-        "ctypes": meta.get("ctypes", {}),
-        "last_probe_iso": (meta.get("last_scans") or {}).get("probe", None),
-        "last_scans": meta.get("last_scans", {}),
+        # diisi sendiri dari file, walaupun meta.json kosong
+        "totals": {
+            "urls": urls_count,
+            "hosts": subdomains_lines,
+            "live_urls": live_urls,
+        },
+        "status_counts": status_counts or {},
+        "ctypes": ctypes or {},
+        "last_scans": last_scans,
+        "last_probe_iso": last_probe_iso,
     }
 
-    return {"stats": out, "urls_count": urls_count, "dash": dash}
+
+    dash["status_counts"] = agg["status_counts"]
+    dash["ctypes"] = agg["content_types"]
+
+    return {
+        "stats": stats_list,
+        "urls_count": urls_count,
+        "dash": dash,
+    }
+
+def count_lines(p: Path) -> int:
+    """Return number of non-empty lines in a text file."""
+    if not p.exists():
+        return 0
+    try:
+        with p.open("r", encoding="utf-8", errors="ignore") as f:
+            return sum(1 for ln in f if ln.strip())
+    except Exception:
+        return 0
+
+
+def load_url_enrich_raw(outputs_root: Path, scope: str) -> dict:
+    """
+    Load __cache/url_enrich.json as-is.
+    Return {} if missing/bad.
+    """
+    cache = outputs_root / scope / "__cache" / "url_enrich.json"
+    if not cache.exists():
+        return {}
+    try:
+        return json.loads(cache.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def count_live_urls_from_enrich(outputs_root: Path, scope: str) -> int:
+    """
+    Count how many URLs are marked alive=true in url_enrich.json.
+    Format bisa dict atau list (kayak versi lama), jadi kita toleran.
+    """
+    raw = load_url_enrich_raw(outputs_root, scope)
+    cnt = 0
+
+    if isinstance(raw, dict):
+        for _, rec in raw.items():
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("alive") is True:
+                cnt += 1
+    elif isinstance(raw, list):
+        for rec in raw:
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("alive") is True:
+                cnt += 1
+    return cnt
+
+def load_http_aggregates(outputs_root: Path, scope: str) -> dict:
+    """
+    Read HTTP/probe metadata from outputs/<scope>/__cache/url_enrich.json
+    and produce small aggregates for the dashboard.
+
+    Returns a dict with:
+        {
+            "live_urls": int,
+            "status_counts": { "200": 12, ... },   # top 5
+            "content_types": { "text/html": 20, ... }  # top 3
+        }
+    """
+    enrich_path = outputs_root / scope / "__cache" / "url_enrich.json"
+    print(enrich_path)
+    if not enrich_path.exists():
+        return {
+            "live_urls": 0,
+            "status_counts": {},
+            "content_types": {},
+        }
+
+    try:
+        enrich_data = json.loads(enrich_path.read_text(encoding="utf-8"))
+    except Exception:
+        # corrupted or partial file; return empty aggregates
+        return {
+            "live_urls": 0,
+            "status_counts": {},
+            "content_types": {},
+        }
+
+    live_urls = 0
+    status_tmp: dict[str, int] = {}
+    ctype_tmp: dict[str, int] = {}
+
+    for _url, rec in enrich_data.items():
+        if not isinstance(rec, dict):
+            continue
+
+        # count alive
+        if rec.get("alive") is True:
+            live_urls += 1
+
+        # count status codes
+        code = rec.get("code")
+        if code is not None:
+            key = str(code)
+            status_tmp[key] = status_tmp.get(key, 0) + 1
+
+        # count content-types (normalize "text/html; charset=UTF-8" -> "text/html")
+        ctype = rec.get("content_type")
+        if ctype:
+            base = ctype.split(";", 1)[0].strip()
+            ctype_tmp[base] = ctype_tmp.get(base, 0) + 1
+
+    # keep top-N only
+    status_counts = dict(
+        sorted(status_tmp.items(), key=lambda x: x[1], reverse=True)[:5]
+    )
+    content_types = dict(
+        sorted(ctype_tmp.items(), key=lambda x: x[1], reverse=True)[:3]
+    )
+
+    return {
+        "live_urls": live_urls,
+        "status_counts": status_counts,
+        "content_types": content_types,
+    }

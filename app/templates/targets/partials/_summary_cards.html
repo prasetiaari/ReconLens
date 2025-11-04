@@ -11,14 +11,14 @@
   <!-- Total URLs -->
   <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
     <div class="text-xs uppercase tracking-wide text-slate-500">Total URLs</div>
-    <div class="mt-1 text-2xl font-semibold">{{ totals.get('urls', 0) }}</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ("{:,}".format(urls_count) if urls_count else 0)}} </div>
     <div class="mt-2 text-xs text-slate-500">All indexed URLs across modules</div>
   </div>
 
   <!-- Live URLs -->
   <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
     <div class="text-xs uppercase tracking-wide text-slate-500">Live URLs (HTTP OK-ish)</div>
-    <div class="mt-1 text-2xl font-semibold">{{ totals.get('urls_alive', 0) }}</div>
+    <div class="mt-1 text-2xl font-semibold">{{ totals.get('live_urls', 0) }}</div>
     <div class="mt-2 text-xs text-slate-500">Alive = probed & returned any status</div>
   </div>
 
@@ -31,7 +31,7 @@
 
   <!-- Last Probe -->
   <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-    <div class="text-xs uppercase tracking-wide text-slate-500">Last Probe</div>
+    <div class="text-xs uppercase tracking-wide text-slate-500">Last Probe/Scan</div>
     <div class="mt-1 text-xl font-medium">
       {% if last_probe_iso %}
         {% if has_timeago %}
@@ -47,8 +47,9 @@
   </div>
 </div>
 
+<!--
 <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-  <!-- Top HTTP Status Codes -->
+  < !-- Top HTTP Status Codes -- >
   <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
     <div class="flex items-center justify-between">
       <div class="text-sm font-semibold text-slate-800">Top HTTP Status Codes</div>
@@ -72,7 +73,7 @@
     </ul>
   </div>
 
-  <!-- Top Content-Types -->
+  <! -- Top Content-Types -- >
   <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
     <div class="flex items-center justify-between">
       <div class="text-sm font-semibold text-slate-800">Top Content-Types</div>
@@ -96,3 +97,4 @@
     </ul>
   </div>
 </div>
+-->
