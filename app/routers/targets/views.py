@@ -29,8 +29,10 @@ from .utils import (
     fmt_last_probe,
     fmt_size_human,
     load_url_enrich,
+    gather_stats
 )
-from app.routers.targets.helpers import gather_stats
+
+#from app.routers.targets.helpers import gather_stats
 from urllib.parse import urlencode
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -58,7 +60,7 @@ async def target_detail(request: Request, scope: str):
         "has_modules": total_lines > 0,
         "has_timeago": True,
     }
-
+    #print(ctx)
     templates = get_templates(request)
     return templates.TemplateResponse("targets/overview.html", ctx)
 
