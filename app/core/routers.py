@@ -9,6 +9,9 @@ def load_all_routers(app: FastAPI, base_pkg: str = "app.routers"):
     """
     package = importlib.import_module(base_pkg)
     for _, name, ispkg in pkgutil.walk_packages(package.__path__, base_pkg + "."):
+        # Skip api_v2 - it's manually included in main.py with proper prefix
+        if "api_v2" in name:
+            continue
         try:
             mod = importlib.import_module(name)
             router = getattr(mod, "router", None)
