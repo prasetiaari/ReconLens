@@ -458,3 +458,43 @@ def load_http_aggregates(outputs_root: Path, scope: str) -> dict:
         "status_counts": status_counts,
         "content_types": content_types,
     }
+
+
+def gather_analyzer_stats(scope: str) -> list[dict]:
+    """
+    Gather stats for security analyzers from outputs/<scope>/.
+    
+    Returns list of dicts with analyzer info and result counts.
+    """
+    from analyzers import get_analyzer_info
+    
+    out_dir = OUTPUTS_DIR / scope
+    if not out_dir.exists():
+        return []
+    
+    results = []
+    for info in get_analyzer_info():
+        name = info["name"]
+        output_file = info["output_filename"]
+        filepath = out_dir / output_file
+        
+        lines = 0
+        size_bytes = 0
+        exists = filepath.exists()
+        
+        if exists:
+            lines = count_lines(filepath)
+            size_bytes = filepath.stat().st_size
+        
+        results.append({
+            "name": name,
+            "description": info["description"],
+            "output_file": output_file,
+            "lines": lines,
+            "size_bytes": size_bytes,
+            "exists": exists,
+        })
+    
+    # Sort by lines descending (most findings first)
+    results.sort(key=lambda x: x["lines"], reverse=True)
+    return results

@@ -24,7 +24,7 @@ from app.deps import get_settings, get_templates
 from ..subdomains import subdomains_page, load_enrich
 from ...services.wordlists import list_wordlists
 
-from .utils import gather_stats, all_hosts_for_scope
+from .utils import gather_stats, all_hosts_for_scope, gather_analyzer_stats
 from .utils import (
     fmt_last_probe,
     fmt_size_human,
@@ -53,6 +53,9 @@ async def target_detail(request: Request, scope: str):
         if s.get("module") not in ("urls",) and s.get("file") not in ("urls.txt",)
     )
     stats_map = {row["module"]: row for row in stats}
+    
+    # Gather security analyzer stats
+    analyzer_stats = gather_analyzer_stats(scope)
 
     ctx = {
         "request": request,
@@ -63,6 +66,7 @@ async def target_detail(request: Request, scope: str):
         "dash": dash,
         "has_modules": total_lines > 0,
         "has_timeago": True,
+        "analyzer_stats": analyzer_stats,
     }
     #print(ctx)
     templates = get_templates(request)
