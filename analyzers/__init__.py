@@ -142,6 +142,9 @@ from analyzers.documents import DocumentsAnalyzer  # noqa: E402, F401
 from analyzers.emails import EmailsAnalyzer  # noqa: E402, F401
 from analyzers.robots import RobotsAnalyzer  # noqa: E402, F401
 from analyzers.params import ParamsAnalyzer  # noqa: E402, F401
+from analyzers.ssrf import SSRFAnalyzer  # noqa: E402, F401
+from analyzers.idor import IDORAnalyzer  # noqa: E402, F401
+from analyzers.api_endpoints import APIEndpointsAnalyzer  # noqa: E402, F401
 
 
 __all__ = [
