@@ -359,6 +359,10 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
         await q.put(
             f"[summary] merged (aggregate) → {agg}  unique_added_agg={max(0, after_agg - before_agg)}  agg_total={after_agg}\n"
         )
+    elif tool == "webinspectra":
+        # webinspectra does not produce URL list we want to merge.
+        # We assume the tool wrote its own JSON under outputs/<scope>/tools/webinspectra/.
+        await q.put("[summary] webinspectra run finished (see tools/webinspectra/)\n")
 
 # ======================================================================
 # Routes
@@ -403,6 +407,12 @@ async def collect_start(scope: str, tool: str, request: Request):
             return JSONResponse({"ok": False, "error": "host not in scope"}, status_code=400)
 
         jid = _new_job(scope, tool, host=normalize_host(host), wordlists=wl_name)
+    elif tool == "webinspectra":
+        if not host:
+            return JSONResponse({"ok": False, "error": "host param required"}, status_code=400)
+        if not host_in_scope(host, scope):
+            return JSONResponse({"ok": False, "error": "host not in scope"}, status_code=400)
+        jid = _new_job(scope, tool, host=normalize_host(host))
     else:
         jid = _new_job(scope, tool, module=module, host=host)
 

@@ -236,4 +236,20 @@ def build_tool_cmd(
         exe = resolve_external_binary("findomain", cfg)
         return [exe, "--target", scope, "--quiet"]
 
+    # --- fingerprinting
+    if tool == "webinspectra":
+        if not host:
+            raise ValueError("webinspectra requires host")
+        return [
+            py,
+            "-m",
+            "ReconLens.tools.webinspectra",
+            "--scope",
+            scope,
+            "--host",
+            host,
+            "--outputs",
+            str(outputs_root),
+        ]
+
     raise ValueError(f"Unknown tool: {tool}")

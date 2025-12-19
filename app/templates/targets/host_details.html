@@ -1,0 +1,245 @@
+{% extends "layout/base.html" %}
+{% block content %}
+
+<div class="flex items-start justify-between mb-6 gap-4">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900">{{ host }}</h1>
+    <p class="text-sm text-slate-500">Scope: {{ scope }}</p>
+
+    {# status pill #}
+    {% set alive = (host_info.alive if host_info else None) %}
+    <div class="mt-3 inline-flex items-center gap-2">
+      {% if alive is true %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+          UP
+        </span>
+      {% elif alive is false %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-medium">
+          DOWN
+        </span>
+      {% else %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+          UNKNOWN
+        </span>
+      {% endif %}
+
+      {% if ip_addr %}
+        <span class="text-xs text-slate-500">IP: {{ ip_addr }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="flex flex-col items-end gap-2">
+    {# main actions for this host #}
+    <div class="flex gap-2">
+      <form method="post" action="/targets/{{ scope }}/collect/probe_subdomains?host={{ host }}">
+        <button class="px-3 py-1 rounded-md bg-slate-900 text-white text-sm hover:bg-slate-800">
+          Re-probe host
+        </button>
+      </form>
+      <form method="post" action="/targets/{{ scope }}/collect/dirsearch?host={{ host }}">
+        <button class="px-3 py-1 rounded-md bg-rose-500 text-white text-sm hover:bg-rose-600">
+          Run dirsearch
+        </button>
+      </form>
+      {% if host_info and host_info.scheme %}
+        <a href="{{ host_info.scheme }}://{{ host }}" target="_blank"
+           class="px-3 py-1 rounded-md border text-sm text-slate-700 hover:bg-slate-50">
+          Open in browser
+        </a>
+      {% endif %}
+    </div>
+
+    {# extra tools placeholder #}
+    <div class="flex gap-1 text-xs text-slate-400">
+      <span>Tools:</span>
+      <button class="underline decoration-dotted">nmap (coming)</button>
+      <button class="underline decoration-dotted">JS scan (coming)</button>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-12 gap-5">
+  {# left column: HTTP/probe + recent URLs #}
+  <div class="col-span-8 flex flex-col gap-5">
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+      <h2 class="text-sm font-semibold text-slate-800 mb-4">HTTP / probe info</h2>
+      <dl class="grid grid-cols-2 gap-y-2 text-sm">
+        <div>
+          <dt class="text-slate-400">Scheme</dt>
+          <dd class="text-slate-800">{{ host_info.scheme or '-' }}</dd>
+        </div>
+        <div>
+          <dt class="text-slate-400">Status code</dt>
+          <dd class="text-slate-800">{{ host_info.code or '-' }}</dd>
+        </div>
+        <div>
+          <dt class="text-slate-400">Size</dt>
+          <dd class="text-slate-800">
+            {% if host_info.size %}
+              {{ host_info.size }} B
+            {% else %}
+              -
+            {% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-400">Title</dt>
+          <dd class="text-slate-800 break-all">{{ host_info.title or '-' }}</dd>
+        </div>
+        <div class="col-span-2">
+          <dt class="text-slate-400">Final URL</dt>
+          <dd class="text-slate-800 break-all">{{ host_info.final_url or '-' }}</dd>
+        </div>
+        <div class="col-span-2">
+          <dt class="text-slate-400">Last probe</dt>
+          <dd class="text-slate-800">
+            {% if host_info.last_probe %}
+              {{ host_info.last_probe }}
+            {% else %}
+              -
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-slate-800">Recent URLs (sample)</h2>
+        <p class="text-xs text-slate-400">Data from url_enrich cache</p>
+      </div>
+
+      {% if urls %}
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-400">
+              <th class="py-2">Path</th>
+              <th class="py-2">Code</th>
+              <th class="py-2">Size</th>
+              <th class="py-2">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in urls[:30] %}
+              <tr class="border-t border-slate-100">
+                <td class="py-1 pr-2 break-all">
+                  <a href="{{ u.open_url or u.url }}" target="_blank" class="text-slate-700 hover:underline">
+                    {{ u.url }}
+                  </a>
+                </td>
+                <td class="py-1 text-slate-700">
+                  {{ u.code or '-' }}
+                </td>
+                <td class="py-1 text-slate-500">
+                  {% if u.size %}{{ u.size }}{% else %}-{% endif %}
+                </td>
+                <td class="py-1 text-slate-500">
+                  {% if u.source %}{{ u.source }}{% else %}-{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="text-sm text-slate-400">No URLs available for this host.</p>
+      {% endif %}
+    </div>
+
+    <p class="text-xs text-slate-300">Note: Data is assembled from local cache files under outputs/{{ scope }}.</p>
+  </div>
+
+  {# right column: dirsearch + neighbors #}
+<div class="col-span-4 flex flex-col gap-5">
+  {# dirsearch card #}
+  {% set ds = dirsearch or {} %}
+  <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <h2 class="text-sm font-semibold text-slate-800 mb-3">Dirsearch</h2>
+    {% if ds %}
+      <div class="text-sm text-slate-500 mb-2">
+        <div>Last run: {{ ds.last_seen or '-' }}</div>
+        <div>Found paths: {{ ds.count_paths or 0 }}</div>
+      </div>
+      {% if ds.found_sample %}
+        <p class="text-xs text-slate-400 mb-2">Sample:</p>
+        <ul class="list-disc ml-4 space-y-1 text-sm text-slate-700 max-h-52 overflow-y-auto">
+          {% for durl in ds.found_sample %}
+            <li class="break-all">{{ durl }}</li>
+          {% endfor %}
+        </ul>
+        {% if ds.count_paths and ds.count_paths > (ds.found_sample|length) %}
+          <p class="text-xs text-slate-400 mt-2">… and {{ ds.count_paths - (ds.found_sample|length) }} more</p>
+        {% endif %}
+      {% else %}
+        <p class="text-sm text-slate-400">No paths listed for this host.</p>
+      {% endif %}
+    {% else %}
+      <p class="text-sm text-slate-400">No dirsearch data for this host.</p>
+    {% endif %}
+  </div>
+
+    {# webinspectra #}
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+     <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-semibold text-slate-900">Fingerprint</h2>
+    {% if webinspectra %}
+      <span class="text-[11px] text-slate-400">
+        Last run: {{ webinspectra.last_run or '-' }}
+      </span>
+    {% else %}
+      <span class="text-[11px] text-slate-400">No data</span>
+    {% endif %}
+  </div>
+  {% if webinspectra and webinspectra.technologies %}
+  {# turn dict -> list of (name, tech) #}
+  {% set tech_list = webinspectra.technologies.items() | list %}
+  {% set shown = tech_list[:6] %}
+
+  <ul class="flex flex-wrap gap-2">
+    {% for name, tech in shown %}
+      <li class="px-2 py-1 rounded-full bg-slate-50 text-xs text-slate-700 border border-slate-100">
+        {{ name }}
+        {% if tech.versions %}
+          <span class="text-slate-400">({{ tech.versions[0] }})</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if tech_list|length > 6 %}
+    <p class="mt-3 text-xs text-slate-400">
+      + {{ tech_list|length - 6 }} more
+    </p>
+  {% endif %}
+{% else %}
+  <p class="text-sm text-slate-400">No fingerprint data for this host.</p>
+{% endif %}
+
+  <div class="mt-4">
+    <a class="text-xs text-slate-500 hover:text-slate-900 underline" href="#">Run fingerprint (coming)</a>
+  </div>
+</div>
+
+  {# neighbors card #}
+  <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <h2 class="text-sm font-semibold text-slate-800 mb-3">Other hosts on IP</h2>
+    {% if neighbors %}
+      <ul class="space-y-2 text-sm">
+        {% for nh in neighbors %}
+          <li class="flex items-center justify-between gap-2">
+            <span class="break-all">{{ nh.host }}</span>
+            {% if nh.alive %}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">up</span>
+            {% else %}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">unknown</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-slate-400">No neighbors data.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

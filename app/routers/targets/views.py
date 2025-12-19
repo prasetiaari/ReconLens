@@ -348,3 +348,4 @@ async def delete_hard(request: Request, scope: str, confirm: str = Form(...)):
             f"<div class='p-3 text-sm text-rose-600'>Delete failed: {e}</div>",
             status_code=500
         )
+
