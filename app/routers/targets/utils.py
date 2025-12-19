@@ -475,7 +475,8 @@ def gather_analyzer_stats(scope: str) -> list[dict]:
     results = []
     for info in get_analyzer_info():
         name = info["name"]
-        output_file = info["output_filename"]
+        # Storage saves as {name}.txt, not output_filename
+        output_file = f"{name}.txt"
         filepath = out_dir / output_file
         
         lines = 0
