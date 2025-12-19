@@ -125,13 +125,54 @@ def parse_params(query: str) -> Dict[str, List[str]]:
 
 # --- Fungsi utama: parse_url ---
 
-def parse_url(url_raw: str) -> Dict:
+def parse_url(url_raw: str) -> "ParsedURL":
     """
-    Parse URL mentah menjadi bagian-bagian terstruktur.
-    - Hanya support http/https; lainnya dikembalikan 'invalid=True'.
+    Parse URL mentah menjadi ParsedURL dataclass.
+    
+    - Hanya support http/https; lainnya dikembalikan dengan is_valid=False.
     - Melakukan normalisasi ringan (host lowercase, path dinormalisasi).
-    - Tidak mengubah urutan nilai param; namun dedup/normalisasi lanjutan
-      bisa dilakukan di modul fingerprint.
+    
+    Returns:
+        ParsedURL: Immutable parsed URL object
+    """
+    from core.types import ParsedURL
+    
+    url_raw = (url_raw or "").strip()
+    
+    if not url_raw:
+        return ParsedURL(raw=url_raw)
+    
+    try:
+        pu = urlparse(url_raw)
+    except Exception:
+        return ParsedURL(raw=url_raw)
+    
+    if pu.scheme not in HTTP_SCHEMES or not pu.netloc:
+        return ParsedURL(raw=url_raw)
+    
+    host, port = extract_host_port(pu.netloc, pu.scheme)
+    path = normalize_path(decode_percent_once(pu.path or "/"))
+    query_raw = pu.query or ""
+    fragment = pu.fragment or None
+    params = parse_params(query_raw)
+    
+    return ParsedURL(
+        raw=url_raw,
+        scheme=pu.scheme,
+        host=host,
+        port=port,
+        path=path,
+        query=query_raw,
+        params=params,
+        fragment=fragment,
+    )
+
+
+def parse_url_dict(url_raw: str) -> Dict:
+    """
+    Parse URL mentah menjadi dict (legacy compatibility).
+    
+    DEPRECATED: Use parse_url() which returns ParsedURL dataclass.
     """
     url_raw = (url_raw or "").strip()
     data = {
@@ -142,7 +183,7 @@ def parse_url(url_raw: str) -> Dict:
         "port": None,
         "path": None,
         "query": None,
-        "params": {},     # dict[str, list[str]]
+        "params": {},
         "fragment": None,
     }
     if not url_raw:
@@ -173,3 +214,4 @@ def parse_url(url_raw: str) -> Dict:
         "fragment": fragment,
     })
     return data
+
