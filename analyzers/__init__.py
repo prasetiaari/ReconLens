@@ -149,6 +149,14 @@ from analyzers.js_files import JSFilesAnalyzer  # noqa: E402, F401
 from analyzers.backup_files import BackupFilesAnalyzer  # noqa: E402, F401
 from analyzers.lfi import LFIAnalyzer  # noqa: E402, F401
 from analyzers.sqli import SQLiAnalyzer  # noqa: E402, F401
+from analyzers.xss import XSSAnalyzer  # noqa: E402, F401
+from analyzers.ssti import SSTIAnalyzer  # noqa: E402, F401
+from analyzers.upload import UploadAnalyzer  # noqa: E402, F401
+from analyzers.debug import DebugAnalyzer  # noqa: E402, F401
+from analyzers.websocket import WebSocketAnalyzer  # noqa: E402, F401
+from analyzers.crlf import CRLFAnalyzer  # noqa: E402, F401
+from analyzers.rce import RCEAnalyzer  # noqa: E402, F401
+from analyzers.xxe import XXEAnalyzer  # noqa: E402, F401
 
 
 __all__ = [
