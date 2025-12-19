@@ -54,7 +54,7 @@ async def timing_middleware(request: Request, call_next):
 # --- Factory ---
 def create_app() -> FastAPI:
     settings = Settings()
-    app = FastAPI(title="Pentest URLs Viewer", version="0.2.0")
+    app = FastAPI(title="Pentest URLs Viewer", version="0.3.0")
 
     # Attach state
     app.state.settings = settings
@@ -64,8 +64,12 @@ def create_app() -> FastAPI:
     # Static files
     app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
 
-    # Include all routers (auto loader)
+    # Include all routers (auto loader for legacy routes)
     load_all_routers(app)
+
+    # Include API v2 (new modular architecture)
+    from app.routers.api_v2 import router as api_v2_router
+    app.include_router(api_v2_router)
 
     # Aliases
     add_alias_routes(app)
