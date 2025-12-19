@@ -141,6 +141,7 @@ from analyzers.jwt import JWTAnalyzer  # noqa: E402, F401
 from analyzers.documents import DocumentsAnalyzer  # noqa: E402, F401
 from analyzers.emails import EmailsAnalyzer  # noqa: E402, F401
 from analyzers.robots import RobotsAnalyzer  # noqa: E402, F401
+from analyzers.params import ParamsAnalyzer  # noqa: E402, F401
 
 
 __all__ = [
