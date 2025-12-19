@@ -145,6 +145,10 @@ from analyzers.params import ParamsAnalyzer  # noqa: E402, F401
 from analyzers.ssrf import SSRFAnalyzer  # noqa: E402, F401
 from analyzers.idor import IDORAnalyzer  # noqa: E402, F401
 from analyzers.api_endpoints import APIEndpointsAnalyzer  # noqa: E402, F401
+from analyzers.js_files import JSFilesAnalyzer  # noqa: E402, F401
+from analyzers.backup_files import BackupFilesAnalyzer  # noqa: E402, F401
+from analyzers.lfi import LFIAnalyzer  # noqa: E402, F401
+from analyzers.sqli import SQLiAnalyzer  # noqa: E402, F401
 
 
 __all__ = [
