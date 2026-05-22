@@ -1,58 +1,119 @@
-<div class="rounded-lg border bg-white">
-  <div class="p-3 border-b flex items-center justify-between">
-    <div class="text-xs uppercase tracking-wide text-slate-500">Conversation</div>
-    <form hx-get="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}"
-          hx-target="#messages" hx-swap="innerHTML">
-      <button class="text-xs px-2 py-1 rounded border hover:bg-slate-50">Refresh</button>
+{# app/templates/ai/partials/_ai_cmd_messages.html #}
+{% set scope = scope or request.path_params.scope %}
+
+<div class="rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col h-full overflow-hidden">
+  <!-- Panel Header -->
+  <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="flex h-2 w-2 relative">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+      </span>
+      <span class="text-xs font-semibold uppercase tracking-wider text-slate-600">ReconLens AI Agent Active</span>
+    </div>
+    <form hx-get="/targets/{{ scope }}/ai/command/thread/{{ thread_id }}"
+          hx-target="#ai-conversation" 
+          hx-swap="innerHTML"
+          hx-push-url="false">
+      <button class="text-xs px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-1">
+        🔄 Sync Thread
+      </button>
     </form>
   </div>
 
-  <div class="p-4 space-y-4">
+  <!-- Messages Scroll Area -->
+  <div id="messages-scroll-area" class="flex-1 p-4 space-y-4 overflow-y-auto bg-slate-50/30">
     {% for m in messages %}
-      <div class="flex gap-3">
-        <div class="text-slate-400 text-sm w-16">{{ m.role }}</div>
-        <div class="flex-1 prose prose-sm max-w-none">
-          {% if m.meta and m.meta.html %}
-            {{ m.content | safe }}
-          {% else %}
-            <pre class="whitespace-pre-wrap font-sans">{{ m.content }}</pre>
-          {% endif %}
-        </div>
-      </div>
-    {% endfor %}
-    {% if not messages %}
-      <div class="text-slate-500 text-sm">No messages yet.</div>
-    {% endif %}
-    
-    {% for m in messages %}
-      <div class="mb-3">
-        <div class="text-xs text-slate-500">{{ m.role }}</div>
-        {% if m.meta and m.meta.html %}
-          <div class="prose prose-sm max-w-none">{{ m.content|safe }}</div>
-        {% else %}
-          <div class="text-slate-800 whitespace-pre-wrap">{{ m.content }}</div>
-        {% endif %}
-
-        {# Jika ini pesan assistant yang menandai ada draft plan, render kartu konfirmasi #}
-        {% if m.meta and m.meta.kind == 'plan-draft' %}
-          <div class="mt-2 rounded border bg-amber-50 p-3 text-sm">
-            <div class="font-medium mb-1">Konfirmasi eksekusi?</div>
-            <div class="text-slate-600 mb-2">AI menyusun rencana aksi. Klik <em>Run</em> untuk menjalankan, atau <em>Discard</em> untuk batalkan.</div>
-            <div class="flex items-center gap-2">
-              <button
-                class="px-3 py-1.5 rounded bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-                hx-post="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}/run"
-                hx-target="#ai-conversation"
-                hx-swap="innerHTML">Run</button>
-              <button
-                class="px-3 py-1.5 rounded bg-slate-200 text-slate-800 text-sm hover:bg-slate-300"
-                hx-post="/targets/{{ request.path_params.scope }}/ai/command/thread/{{ thread_id }}/discard"
-                hx-target="#ai-conversation"
-                hx-swap="innerHTML">Discard</button>
+      {% if m.role == 'user' %}
+        <!-- User Chat Bubble -->
+        <div class="flex justify-end gap-3 max-w-[85%] ml-auto">
+          <div class="flex flex-col items-end space-y-1">
+            <div class="px-4 py-2.5 rounded-2xl bg-slate-900 text-slate-100 text-sm shadow-sm font-sans whitespace-pre-wrap leading-relaxed rounded-tr-none">
+              {{ m.content }}
+            </div>
+            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
+              <span>👤 User</span>
             </div>
           </div>
-        {% endif %}
-      </div>
+        </div>
+      {% else %}
+        <!-- Assistant Chat Bubble -->
+        <div class="flex justify-start gap-3 max-w-[85%]">
+          <div class="flex flex-col items-start space-y-1.5">
+            <div class="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 text-sm shadow-sm font-sans leading-relaxed rounded-tl-none">
+              {% if m.meta and m.meta.html %}
+                {{ m.content | safe }}
+              {% else %}
+                <div class="prose prose-sm max-w-none text-slate-800 font-sans whitespace-pre-wrap">{{ m.content }}</div>
+              {% endif %}
+
+              <!-- Actionable CLI Proposal Card -->
+              {% if m.meta and m.meta.kind == 'proposal' %}
+                <div class="p-4 border rounded-xl bg-slate-950 border-indigo-500/20 text-slate-100 shadow-md space-y-3 mt-3 max-w-md transition-all hover:border-indigo-500/40">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="flex h-2 w-2 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                      </span>
+                      <span class="text-[10px] font-bold tracking-wider text-indigo-400 uppercase">AI RECON PROPOSAL</span>
+                    </div>
+                    <span class="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md font-mono font-bold">{{ m.meta.tool_upper }}</span>
+                  </div>
+                  <p class="text-xs text-slate-400 font-sans leading-relaxed">
+                    AI menyarankan pemindaian aktif menggunakan <strong>{{ m.meta.tool_name }}</strong> untuk target <strong>{{ scope }}</strong>. Klik tombol di bawah untuk meluncurkannya di persistent sidebar drawer!
+                  </p>
+                  <div class="pt-1">
+                    <button onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/{{ m.meta.tool }}{{ m.meta.query_params }}')" 
+                            class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 font-sans">
+                      🚀 Luncurkan {{ m.meta.tool_upper }} Console
+                    </button>
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Execution Confirmation Card (Plan Drafts) -->
+              {% if m.meta and m.meta.kind == 'plan-draft' %}
+                <div class="mt-3 rounded-xl border border-amber-200/50 bg-amber-50/50 p-4 text-sm shadow-sm space-y-2.5">
+                  <div class="font-semibold text-amber-900 flex items-center gap-1.5">
+                    ⚠️ Konfirmasi Eksekusi Rencana
+                  </div>
+                  <div class="text-slate-600 leading-relaxed text-xs">AI telah menyusun draf rencana aksi. Silakan klik **Run** untuk mengeksekusi, atau **Discard** untuk membatalkan.</div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
+                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ thread_id }}/run"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML"
+                      hx-push-url="false">Run Plan</button>
+                    <button
+                      class="px-3.5 py-1.5 rounded-lg bg-slate-200 text-slate-800 text-xs font-semibold hover:bg-slate-300 transition-colors"
+                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ thread_id }}/discard"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML"
+                      hx-push-url="false">Discard</button>
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
+              {% if m.meta and m.meta.model_name %}
+                <span>🤖 {{ m.meta.model_name }}</span>
+              {% else %}
+                <span>🤖 ReconLens Copilot</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
     {% endfor %}
+    
+    {% if not messages %}
+      <div class="flex flex-col items-center justify-center h-full py-12 text-slate-400">
+        <span class="text-4xl mb-2">⚡</span>
+        <div class="text-sm font-medium">Thread ini belum memiliki riwayat obrolan.</div>
+        <div class="text-xs text-slate-400 mt-1">Ketik perintah seperti 'Jalankan dirsearch' untuk memulai!</div>
+      </div>
+    {% endif %}
   </div>
 </div>

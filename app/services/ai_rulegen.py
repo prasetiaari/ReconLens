@@ -143,7 +143,23 @@ def _call_ollama(
     mode="rules"   : strict JSON array of rule objects
     mode="command" : strict JSON for chat/plan/confirm/revise
     """
-    url = "http://localhost:11434/api/generate"
+    from app.core.config_store import load_settings
+
+    # Load active runtime settings
+    try:
+        settings = load_settings()
+        ai_cfg = settings.get("ai", {})
+        source = ai_cfg.get("source") or "local"
+        cloud_endpoint = ai_cfg.get("endpoint") or "https://api.openai.com/v1/chat/completions"
+        cloud_api_key = ai_cfg.get("api_key") or ""
+        cloud_model = ai_cfg.get("model") or "gpt-3.5-turbo"
+    except Exception:
+        source = "local"
+        cloud_endpoint = "https://api.openai.com/v1/chat/completions"
+        cloud_api_key = ""
+        cloud_model = "gpt-3.5-turbo"
+
+    source = source.strip().lower()
 
     if mode == "rules":
         system_msg = (
@@ -172,18 +188,49 @@ def _call_ollama(
         system_msg = "You are a helpful AI."
         fmt = None
 
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "system": system_msg,
-        "stream": False,
-        "format": fmt,  # let Ollama emit pure JSON
-        "options": {"temperature": max(0.0, min(float(temperature), 1.0))},
-    }
-    r = requests.post(url, json=payload, timeout=(5, timeout))
-    r.raise_for_status()
-    data = r.json()
-    return data.get("response")
+    if source == "cloud":
+        # Call OpenAI / Cloud provider
+        headers = {
+            "Content-Type": "application/json",
+        }
+        if cloud_api_key:
+            headers["Authorization"] = f"Bearer {cloud_api_key}"
+
+        payload = {
+            "model": cloud_model,
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": max(0.0, min(float(temperature), 1.0)),
+        }
+
+        # We don't force response_format to avoid incompatibilities with LM Studio/LocalAI/vLLM
+        # if fmt == "json":
+        #     payload["response_format"] = {"type": "json_object"}
+
+        r = requests.post(cloud_endpoint, json=payload, headers=headers, timeout=(5, timeout))
+        r.raise_for_status()
+        data = r.json()
+
+        # OpenAI format: choices[0].message.content
+        resp_text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        return resp_text
+    else:
+        # Local Ollama
+        url = "http://localhost:11434/api/generate"
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "system": system_msg,
+            "stream": False,
+            "format": fmt,  # let Ollama emit pure JSON
+            "options": {"temperature": max(0.0, min(float(temperature), 1.0))},
+        }
+        r = requests.post(url, json=payload, timeout=(5, timeout))
+        r.raise_for_status()
+        data = r.json()
+        return data.get("response")
 
 
 # ============================
@@ -651,13 +698,14 @@ def plan_or_chat_via_llm(
 # ============================
 # Legacy hybrid (heuristik + LLM fallback)
 # ============================
-def parse_prompt_to_plan_or_chat(
+def _parse_prompt_to_plan_or_chat_inner(
     *,
     prompt: str,
     scope: str,
     model: str = DEFAULT_MODEL,
     intent: str = "auto",
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int = DEFAULT_TIMEOUT,
+    err_container: list = None
 ) -> Dict[str, Any]:
     """
     Return salah satu:
@@ -697,12 +745,114 @@ def parse_prompt_to_plan_or_chat(
                 if isinstance(acts, list):
                     for a in acts:
                         a["args"].setdefault("target", scope)
+                
+                # Pasang metadata proposal card jika LLM memicu CLI tool
+                for a in (acts or []):
+                    tool = str(a.get("tool") or "").lower()
+                    if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder", "subdomains_alive"):
+                        target_host = a.get("args", {}).get("host") or a.get("args", {}).get("target") or scope
+                        query_params = f"?host={target_host}" if tool == "dirsearch" else ""
+                        tool_map = {
+                            "gau": ("GAU", "GAU (GetAllUrls)"),
+                            "waymore": ("WAYMORE", "Waymore"),
+                            "urlfinder": ("URLFINDER", "URLFinder"),
+                            "dirsearch": ("DIRSEARCH", "Dirsearch"),
+                            "subfinder": ("SUBFINDER", "Subfinder"),
+                            "subdomains_alive": ("SUBFINDER", "Subfinder")
+                        }
+                        tool_info = tool_map.get(tool, (tool.upper(), tool.capitalize()))
+                        data["meta"] = {
+                            "kind": "proposal",
+                            "tool": "subfinder" if tool == "subdomains_alive" else tool,
+                            "tool_upper": tool_info[0],
+                            "tool_name": tool_info[1],
+                            "query_params": query_params,
+                            "target_host": target_host
+                        }
+                        break
                 return data
-    except Exception:
-        pass
+    except Exception as e:
+        if err_container is not None:
+            err_container.append(f"{type(e).__name__}: {str(e)}")
+        print(f"[rulegen] Fallback: {e}")
 
-    # Fallback logika ringan
+    # Fallback logika ringan (Heuristik)
     lower = p.lower()
+    
+    # 1. Dirsearch
+    if any(k in lower for k in ["dirsearch", "dir search", "directory search", "scan dir"]):
+        host_match = re.search(r"([a-z0-9]+(?:[\-._][a-z0-9]+)*\.[a-z]{2,5})", p.lower())
+        target_host = host_match.group(1) if host_match else scope
+        return {
+            "type": "chat",
+            "reply": f"Saya mendeteksi Anda ingin melakukan Directory Bruteforcing menggunakan **Dirsearch** untuk target `{target_host}`.",
+            "meta": {
+                "kind": "proposal",
+                "tool": "dirsearch",
+                "tool_upper": "DIRSEARCH",
+                "tool_name": "Dirsearch",
+                "query_params": f"?host={target_host}",
+                "target_host": target_host
+            }
+        }
+    
+    # 2. GAU
+    if any(k in lower for k in ["gau", "getallurls", "all urls", "semua url"]):
+        return {
+            "type": "chat",
+            "reply": f"Saya mendeteksi Anda ingin mengumpulkan URL arsip menggunakan **GAU (GetAllUrls)** untuk domain `{scope}`.",
+            "meta": {
+                "kind": "proposal",
+                "tool": "gau",
+                "tool_upper": "GAU",
+                "tool_name": "GAU (GetAllUrls)",
+                "query_params": ""
+            }
+        }
+        
+    # 3. Waymore
+    if any(k in lower for k in ["waymore", "way back", "wayback"]):
+        return {
+            "type": "chat",
+            "reply": f"Saya mendeteksi Anda ingin melakukan ekstraksi URL Wayback mendalam menggunakan **Waymore** untuk domain `{scope}`.",
+            "meta": {
+                "kind": "proposal",
+                "tool": "waymore",
+                "tool_upper": "WAYMORE",
+                "tool_name": "Waymore",
+                "query_params": ""
+            }
+        }
+        
+    # 4. URLFinder
+    if any(k in lower for k in ["urlfinder", "url finder", "ekstrak url", "js link"]):
+        return {
+            "type": "chat",
+            "reply": f"Saya mendeteksi Anda ingin memindai file JS dan mengekstrak endpoints menggunakan **URLFinder** untuk domain `{scope}`.",
+            "meta": {
+                "kind": "proposal",
+                "tool": "urlfinder",
+                "tool_upper": "URLFINDER",
+                "tool_name": "URLFinder",
+                "query_params": ""
+            }
+        }
+        
+    # 5. Subfinder
+    if any(k in lower for k in ["subfinder", "subdomain finder", "cari subdomain"]):
+        return {
+            "type": "chat",
+            "reply": f"Saya mendeteksi Anda ingin melakukan pencarian subdomain pasif menggunakan **Subfinder** untuk domain `{scope}`.",
+            "meta": {
+                "kind": "proposal",
+                "tool": "subfinder",
+                "tool_upper": "SUBFINDER",
+                "tool_name": "Subfinder",
+                "query_params": ""
+            }
+        }
+
+    # Default fallback plans
     if "subdomain" in lower and ("aktif" in lower or "alive" in lower or "200" in lower):
         return {
             "type": "confirm",
@@ -717,4 +867,61 @@ def parse_prompt_to_plan_or_chat(
             "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}],
             "needs_confirmation": True,
         }
-    return {"type": "chat", "reply": "Catat. Bisa jalankan tools kalau perlu. Mau aku buat rencana aksi dulu?"}
+
+    return {"type": "chat", "reply": "Catat, bro. Saya siap meluncurkan tools pemindaian pasif maupun aktif. Silakan ketik perintah seperti 'Jalankan dirsearch' atau 'Cari archive urls via GAU'!"}
+
+
+def parse_prompt_to_plan_or_chat(
+    *,
+    prompt: str,
+    scope: str,
+    model: str = DEFAULT_MODEL,
+    intent: str = "auto",
+    timeout: int = DEFAULT_TIMEOUT
+) -> Dict[str, Any]:
+    from app.core.config_store import load_settings
+
+    # Determine the model name dynamically
+    try:
+        settings = load_settings()
+        ai_cfg = settings.get("ai", {})
+        source = ai_cfg.get("source") or "local"
+        if source == "cloud":
+            ep = ai_cfg.get("endpoint") or ""
+            model_val = ai_cfg.get("model") or "gpt-3.5-turbo"
+            if "localhost" in ep or "127.0.0.1" in ep:
+                model_desc = f"{model_val} (LM Studio)"
+            else:
+                model_desc = f"{model_val} (Cloud)"
+        else:
+            model_desc = f"{model} (Ollama)"
+    except Exception:
+        model_desc = f"{model} (Ollama)"
+
+    err_container = []
+
+    # Call the inner function
+    res = _parse_prompt_to_plan_or_chat_inner(
+        prompt=prompt,
+        scope=scope,
+        model=model,
+        intent=intent,
+        timeout=timeout,
+        err_container=err_container
+    )
+
+    # Add model info to result
+    if res and isinstance(res, dict):
+        res.setdefault("meta", {})
+        if not isinstance(res["meta"], dict):
+            res["meta"] = {}
+
+        if err_container:
+            res["meta"]["model_name"] = f"Heuristic Fallback ({err_container[0]})"
+        elif "Heuristic fallback" in str(res.get("summary", "")) or "darurat" in str(res.get("reply", "")):
+            res["meta"]["model_name"] = "Heuristic Fallback"
+        else:
+            res["meta"]["model_name"] = model_desc
+
+    return res
+

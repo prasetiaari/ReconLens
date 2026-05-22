@@ -33,5 +33,13 @@ class Settings(BaseModel):
     WAYMORE_BIN: str = "/usr/local/bin/waymore"
     URLFINDER_BIN: str = "/usr/local/bin/urlfinder"
 
+    # AI model configuration
+    AI_MODEL_SOURCE: str = os.getenv("AI_MODEL_SOURCE", "local")  # "local" or "cloud"
+    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "llama3.1:8b")
+    AI_CLOUD_ENDPOINT: str = os.getenv("AI_CLOUD_ENDPOINT", "")
+    AI_CLOUD_API_KEY: str = os.getenv("AI_CLOUD_API_KEY", "")
+
+    class Config:
+        arbitrary_types_allowed = True
     class Config:
         arbitrary_types_allowed = True

@@ -28,14 +28,15 @@ async def ai_command_home(request: Request, scope: str, thread: Optional[str] = 
     curr = thread or (threads[0].id if threads else None)
     msgs = st.read_msgs(curr, limit=300) if curr else []
     ctx = {"request": request, "scope": scope, "threads": threads, "thread_id": curr, "messages": msgs}
-    return T.TemplateResponse("ai_command.html", ctx)
+    return T.TemplateResponse("ai/command.html", ctx)
 
 @router.get("/{scope}/ai/command/thread_list", response_class=HTMLResponse)
 async def ai_command_thread_list(request: Request, scope: str):
     T = get_templates(request)
     st = _store(request, scope)
     threads = st.list_threads()
-    return T.TemplateResponse("_ai_cmd_threads.html", {"request": request, "scope": scope, "threads": threads})
+    curr = request.query_params.get("thread")
+    return T.TemplateResponse("ai/partials/_ai_cmd_threads.html", {"request": request, "scope": scope, "threads": threads, "thread_id": curr})
 
 @router.post("/{scope}/ai/command/thread", response_class=JSONResponse)
 async def ai_command_new_thread(request: Request, scope: str, title: str = Form(...)):
@@ -49,7 +50,7 @@ async def ai_command_load_thread(request: Request, scope: str, thread_id: str):
     T = get_templates(request)
     st = _store(request, scope)
     msgs = st.read_msgs(thread_id, limit=300)
-    return T.TemplateResponse("_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
+    return T.TemplateResponse("ai/partials/_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
 
 # ---------- Helpers untuk konfirmasi ----------
 YES_PAT = re.compile(r"^\s*(ya|y|yes|ok|oke|yap|yup|sip|gas|lanjut|silakan|jalankan|jalan(?:kan)?)\s*[.!]*\s*$", re.I)
@@ -120,11 +121,12 @@ async def ai_command_parse(
         st.append_msg(thread_id, Msg.new("assistant", _confirmation_card(scope, thread_id), {"html": True}))
     else:
         # Chat biasa
-        reply = parsed.get("message") or "Baik."
-        st.append_msg(thread_id, Msg.new("assistant", reply, {}))
+        reply = parsed.get("reply") or parsed.get("message") or "Baik."
+        meta = parsed.get("meta") or {}
+        st.append_msg(thread_id, Msg.new("assistant", reply, meta))
 
     msgs = st.read_msgs(thread_id)
-    return T.TemplateResponse("_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
+    return T.TemplateResponse("ai/partials/_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
 
 # ---------- Run / Discard ----------
 @router.post("/{scope}/ai/command/thread/{thread_id}/run", response_class=HTMLResponse)
@@ -152,7 +154,7 @@ async def ai_command_run(request: Request, scope: str, thread_id: str):
         st.append_msg(thread_id, Msg.new("assistant", f"❌ Error running plan:\n```\n{traceback.format_exc()}\n```"))
 
     msgs = st.read_msgs(thread_id)
-    return T.TemplateResponse("_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
+    return T.TemplateResponse("ai/partials/_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
 
 @router.post("/{scope}/ai/command/thread/{thread_id}/discard", response_class=HTMLResponse)
 async def ai_command_discard(request: Request, scope: str, thread_id: str):
@@ -162,4 +164,4 @@ async def ai_command_discard(request: Request, scope: str, thread_id: str):
     st.save_plan(thread_id, {})
     st.append_msg(thread_id, Msg.new("assistant", "🗑️ Plan dibatalkan.", {}))
     msgs = st.read_msgs(thread_id)
-    return T.TemplateResponse("_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})
+    return T.TemplateResponse("ai/partials/_ai_cmd_messages.html", {"request": request, "messages": msgs, "thread_id": thread_id})

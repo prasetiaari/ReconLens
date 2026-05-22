@@ -1,15 +1,32 @@
 {# _ai_cmd_threads.html #}
-<div class="space-y-1">
+<div class="space-y-1.5">
   {% if threads and threads|length %}
     {% for th in threads %}
+      {% set is_active = (th.id == thread_id) %}
       <a
         href="/targets/{{ scope }}/ai/command?thread={{ th.id }}"
-        class="block px-3 py-2 rounded hover:bg-slate-100 text-slate-800 truncate"
+        class="group flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all text-xs truncate font-sans
+               {% if is_active %}
+                 bg-indigo-50/50 border-indigo-200 text-indigo-900 font-semibold shadow-sm border-l-4 border-l-indigo-600
+               {% else %}
+                 border-slate-100 hover:border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900
+               {% endif %}"
       >
-        {{ th.title or th.id }}
+        <div class="flex items-center gap-2 truncate">
+          <span class="text-slate-400 group-hover:text-slate-500">💬</span>
+          <span class="truncate">{{ th.title or "Chat Session" }}</span>
+        </div>
+        {% if th.msg_count > 0 %}
+          <span class="text-[9px] px-1.5 py-0.5 rounded-md font-mono 
+                       {% if is_active %}bg-indigo-200/50 text-indigo-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+            {{ th.msg_count }}
+          </span>
+        {% endif %}
       </a>
     {% endfor %}
   {% else %}
-    <div class="px-3 py-2 text-slate-500">No threads yet.</div>
+    <div class="px-3 py-4 text-center rounded-lg border border-dashed border-slate-200 text-slate-400 font-sans text-xs">
+      No threads created yet.
+    </div>
   {% endif %}
 </div>

@@ -279,13 +279,30 @@
       hx-target="#ai-status"
       hx-swap="innerHTML">
       <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Model source</label>
+        {% set source = ai.get('source','local') %}
+        <select name="ai_source" class="input w-full sm:col-span-2 max-w-xs">
+          <option value="local" {{ 'selected' if source=='local' }}>Local (Ollama)</option>
+          <option value="cloud" {{ 'selected' if source=='cloud' }}>Cloud (OpenAI / Compatible)</option>
+        </select>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
         <label class="text-sm text-slate-600">Default model</label>
         {% set model = ai.get('model','llama3.2:3b') %}
-        <select name="ai_model" class="input w-full sm:col-span-2 max-w-xs">
-          <option value="llama3.2:3b" {{ 'selected' if model=='llama3.2:3b' }}>llama3.2:3b</option>
-          <option value="llama3.1:8b" {{ 'selected' if model=='llama3.1:8b' }}>llama3.1:8b</option>
-          <option value="qwen2.5:7b" {{ 'selected' if model=='qwen2.5:7b' }}>qwen2.5:7b</option>
-        </select>
+        <input type="text" name="ai_model" class="input w-full sm:col-span-2 max-w-xs" placeholder="llama3.2:3b or gpt-4o-mini" value="{{ model }}">
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Cloud Endpoint</label>
+        {% set endpoint = ai.get('endpoint','https://api.openai.com/v1/chat/completions') %}
+        <input type="text" name="ai_endpoint" class="input w-full sm:col-span-2" placeholder="https://api.openai.com/v1/chat/completions" value="{{ endpoint }}">
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Cloud API Key</label>
+        {% set api_key = ai.get('api_key','') %}
+        <input type="password" name="ai_api_key" class="input w-full sm:col-span-2" placeholder="sk-..." value="{{ api_key }}">
       </div>
 
       <div class="grid sm:grid-cols-3 gap-3 items-center">

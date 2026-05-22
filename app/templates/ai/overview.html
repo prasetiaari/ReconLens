@@ -1,11 +1,11 @@
 {# app/templates/ai_overview.html #}
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block title %}AI · {{ scope }}{% endblock %}
 
 {% block content %}
 {% set active = "ai" %}
-{% include "_target_tabs.html" with context %}
-{% include "_ai_tabs.html" with context %}
+{% include "targets/partials/_target_tabs.html" with context %}
+{% include "ai/partials/_ai_tabs.html" with context %}
 
 <div class="mt-2">
   <h1 class="text-2xl font-semibold text-slate-900">AI Overview — {{ scope }}</h1>

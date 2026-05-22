@@ -159,12 +159,18 @@ async def settings_ai(request: Request):
     form = await request.form()
     wants_json = "application/json" in (request.headers.get("accept") or "")
 
+    source = form.get("ai_source", "local")
     model = form.get("ai_model", "llama3.2:3b")
+    endpoint = form.get("ai_endpoint", "https://api.openai.com/v1/chat/completions")
+    api_key = form.get("ai_api_key", "")
     autorun = _as_bool(form.get("ai_autorun"), False)
 
     settings = load_settings() or {}
     ai = _ensure_nested(settings, ["ai"])
+    ai["source"] = source
     ai["model"] = model
+    ai["endpoint"] = endpoint
+    ai["api_key"] = api_key
     ai["autorun"] = autorun
 
     ok, errs = save_settings(settings)

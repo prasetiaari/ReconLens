@@ -1,200 +1,308 @@
 {# app/templates/ai_command.html #}
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block title %}AI Command · {{ scope }}{% endblock %}
 
 {% block content %}
 {% set active = "ai" %}
-{% include "_target_tabs.html" with context %}
-{% include "_ai_tabs.html" with context %}
+{% include "targets/partials/_target_tabs.html" with context %}
+{% include "ai/partials/_ai_tabs.html" with context %}
 
-{# Fallback: kalau thread_id kosong, ambil dari query string agar form tidak ikut-ikutan nonaktif #}
+{# Fallback: thread_id extraction #}
 {% set active_thread = thread_id or request.query_params.get('thread') %}
 
-<div class="mt-4">
-  <h1 class="text-2xl font-semibold text-slate-900">
-    AI Command for {{ scope }}
-  </h1>
-  <p class="mt-2 text-slate-600">
-    Kirim prompt ke AI untuk membuat plan & menjalankan tools. Multi-thread dengan history.
+<div class="mt-5 space-y-2">
+  <div class="flex items-center gap-2">
+    <div class="h-3 w-3 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/50 animate-pulse"></div>
+    <h1 class="text-xl font-bold tracking-tight text-slate-900 font-sans">
+      AI Pentest Copilot
+    </h1>
+  </div>
+  <p class="text-xs text-slate-500 font-sans leading-relaxed">
+    Kirim instruksi bahasa alami untuk memicu rencana aksi recon otomatis, memindai direktori aktif, atau mendeteksi endpoints berisiko. Rencana aksi terintegrasi langsung dengan persistent background runner.
   </p>
 </div>
 
-{# =======================
-   LAYOUT: Sidebar (threads) + Main (chat)
-   ======================= #}
-<div class="mt-4 grid grid-cols-12 gap-4">
-  <!-- Sidebar: Threads -->
-  <aside class="col-span-12 md:col-span-3">
-    <div class="rounded-lg border bg-white p-3">
-      <div class="flex items-center justify-between mb-2">
-        <div class="text-xs uppercase tracking-wide text-slate-500">Threads</div>
-
-        <!-- New Thread: POST -> JSON {ok, thread_id}; JS redirect ke ?thread=<id> -->
-        <div class="inline-flex items-center gap-2" title="Create new thread">
-          <input id="new-thread-title" class="input py-1 px-2 text-sm" placeholder="new thread title…"/>
-          <button
-            id="btn-new-thread"
-            class="px-2 py-1 rounded bg-slate-900 text-white text-xs hover:bg-black"
-            hx-post="/targets/{{ scope }}/ai/command/thread"
-            hx-vals='js:{"title": document.getElementById("new-thread-title").value}'
-            hx-target="#threads-list"
-            hx-swap="outerHTML">
-            New
-          </button>
-        </div>
+{# ==========================================
+   LAYOUT: Sidebar (Threads) + Main Chat
+   ========================================== #}
+<div class="mt-5 grid grid-cols-12 gap-5">
+  <!-- Left Column: Sidebar Threads -->
+  <aside class="col-span-12 lg:col-span-3 flex flex-col space-y-4">
+    <div class="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm flex flex-col space-y-3.5">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-sans">Chat Threads</span>
       </div>
 
-      <!-- daftar thread (selalu fresh) -->
+      <!-- New Thread Form -->
+      <div class="flex flex-col space-y-2">
+        <input id="new-thread-title" 
+               class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-sans focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/50 transition-all placeholder-slate-400" 
+               placeholder="Nama thread baru..."/>
+        <button
+          id="btn-new-thread"
+          class="w-full py-2 rounded-lg bg-slate-900 hover:bg-black text-white text-xs font-semibold shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+          hx-post="/targets/{{ scope }}/ai/command/thread"
+          hx-vals='js:{"title": document.getElementById("new-thread-title").value}'
+          hx-target="#threads-list"
+          hx-swap="outerHTML"
+          hx-push-url="false">
+          ➕ Buat Thread
+        </button>
+      </div>
+
+      <!-- Threads List Container -->
       <div id="threads-list"
-           hx-get="/targets/{{ scope }}/ai/command/thread_list"
+           hx-get="/targets/{{ scope }}/ai/command/thread_list?thread={{ active_thread or '' }}"
            hx-trigger="load"
-           hx-swap="outerHTML">
-        <div class="text-sm text-slate-500">Loading…</div>
+           hx-swap="outerHTML"
+           hx-push-url="false"
+           class="overflow-y-auto max-h-[40vh] space-y-1">
+        <div class="text-xs text-slate-400 font-sans text-center py-4">Memuat daftar chat...</div>
       </div>
     </div>
   </aside>
 
-  <!-- Main: Chat -->
-  <main class="col-span-12 md:col-span-9">
-    <div class="rounded-lg border bg-white h-[72vh] flex flex-col">
-      <!-- Header -->
-      <div class="px-4 py-3 border-b flex items-center gap-4">
-        <div class="text-sm">
-          <span class="text-slate-500">Model</span>
-          <select id="ai-model" class="input py-1 px-2 ml-1 align-middle">
-            <option value="llama3.2:3b">llama3.2:3b</option>
-            <option value="llama3.1:8b">llama3.1:8b</option>
-            <option value="qwen2.5:3b">qwen2.5:3b</option>
-          </select>
-        </div>
-        <div class="text-sm">
-          <span class="text-slate-500">Intent</span>
-          <select id="ai-intent" class="input py-1 px-2 ml-1 align-middle">
-            <option value="auto" selected>auto</option>
-            <option value="analyze">analyze</option>
-            <option value="enumerate">enumerate</option>
-            <option value="scan">scan</option>
-          </select>
+  <!-- Right Column: Main Chat Window -->
+  <main class="col-span-12 lg:col-span-9 flex flex-col">
+    <div class="rounded-xl border border-slate-200/80 bg-white h-[68vh] flex flex-col overflow-hidden shadow-sm">
+      
+      <!-- Chat Header controls -->
+      <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center gap-4 justify-between">
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-1.5 text-xs text-slate-600 font-sans">
+            <span class="font-medium text-slate-500">Model:</span>
+            <select id="ai-model" class="py-1 px-2.5 rounded-md border border-slate-200 bg-white text-slate-700 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+              <option value="llama3.2:3b">llama3.2:3b</option>
+              <option value="llama3.1:8b">llama3.1:8b</option>
+              <option value="qwen2.5:3b">qwen2.5:3b</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-slate-600 font-sans">
+            <span class="font-medium text-slate-500">Mode:</span>
+            <select id="ai-intent" class="py-1 px-2.5 rounded-md border border-slate-200 bg-white text-slate-700 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none cursor-pointer">
+              <option value="auto" selected>Auto Intent</option>
+              <option value="analyze">Only Analyze</option>
+              <option value="enumerate">Enumerate Only</option>
+              <option value="scan">Scan Ports</option>
+            </select>
+          </div>
         </div>
 
-        <div class="ml-auto text-sm text-slate-500">
-          Thread: <span class="font-mono">{{ active_thread or "–" }}</span>
-        </div>
-      </div>
-
-      <!-- Conversation (scrollable) -->
-      <div id="ai-conversation"
-           class="flex-1 overflow-auto p-4"
-           {% if active_thread %}
-             hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
-             hx-trigger="load"
-             hx-swap="innerHTML"
-           {% endif %}>
-        {% if messages and messages|length %}
-          {% include "_ai_cmd_messages.html" with context %}
-        {% else %}
-          <div class="text-sm text-slate-500">
-            {% if active_thread %}No messages yet.{% else %}Create / pilih thread di kiri.{% endif %}
+        {% if active_thread %}
+          <div class="text-[10px] bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-1 rounded-md font-mono">
+            Active ID: {{ active_thread[:12] }}...
           </div>
         {% endif %}
       </div>
 
-      <!-- Composer (chat style, di bawah) -->
-      <div class="border-t p-3">
+      <!-- Conversations container -->
+      <div id="ai-conversation"
+           class="flex-1 overflow-y-auto"
+           {% if active_thread %}
+             hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             hx-push-url="false"
+           {% endif %}>
+        {% if messages and messages|length %}
+          {% include "ai/partials/_ai_cmd_messages.html" with context %}
+        {% else %}
+          <div class="flex flex-col items-center justify-center h-full p-8 text-center text-slate-400">
+            <div class="w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 text-2xl shadow-inner mb-4">
+              💬
+            </div>
+            {% if active_thread %}
+              <div class="text-sm font-semibold text-slate-600">Mulai percakapan Anda</div>
+              <div class="text-xs text-slate-400 mt-1 max-w-xs">Ketik instruksi atau pertanyaan mengenai recon target scope di panel input bawah!</div>
+            {% else %}
+              <div class="text-sm font-semibold text-slate-600 font-sans">Belum ada thread terpilih</div>
+              <div class="text-xs text-slate-400 mt-1 max-w-xs font-sans">Silakan buat thread baru di sebelah kiri atau pilih sesi chat yang sudah ada untuk memulai pentesting.</div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Floating Composer input at bottom -->
+      <div class="border-t border-slate-100 p-3 bg-slate-50/20">
         {% if active_thread %}
           <form id="aiPlanForm"
-                class="flex items-start gap-2"
+                class="flex gap-2 items-end"
                 hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/parse"
                 hx-target="#ai-conversation"
                 hx-swap="innerHTML"
-                onsubmit="attachPlanFormParams(this);">
-            <textarea name="prompt"
-                      id="chat-input"
-                      rows="1"
-                      class="w-full input"
-                      placeholder="Tulis perintah… (Enter = kirim, Shift+Enter = baris baru)"
-                      required></textarea>
-
-            <div class="flex items-center gap-2">
-              <button type="submit"
-                      class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">
-                Send
-              </button>
-
-              <button type="button"
-                      id="aiRunBtn"
-                      class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
-                      hx-target="#ai-conversation"
-                      hx-swap="innerHTML">
-                ▶ Run Plan
-              </button>
-
-              <button type="button"
-                      class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm hover:bg-slate-200"
-                      hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
-                      hx-target="#ai-conversation"
-                      hx-swap="innerHTML">
-                Refresh
+                hx-push-url="false"
+                onsubmit="handleChatSubmit(this);">
+            
+            <div class="flex-1 relative flex items-center bg-white rounded-xl border border-slate-200 shadow-sm focus-within:ring-1 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition-all">
+              <textarea name="prompt"
+                        id="chat-input"
+                        rows="1"
+                        class="w-full pl-3.5 pr-10 py-3 rounded-xl border-none focus:ring-0 focus:outline-none resize-none font-sans text-xs text-slate-800 placeholder-slate-400 bg-transparent leading-relaxed"
+                        placeholder="Tulis perintah... (contoh: 'Jalankan dirsearch untuk admin.target' atau 'Cari urls via GAU')"
+                        required></textarea>
+              <button type="submit" 
+                      class="absolute right-2 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all active:scale-95 flex items-center justify-center">
+                🚀 Send
               </button>
             </div>
 
-            <!-- hidden fields diisi dari dropdown header -->
+            <!-- Action buttons beside composer -->
+            <div class="flex items-center gap-1.5 self-center">
+              <button type="button"
+                      id="aiRunBtn"
+                      class="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold shadow-sm transition-all active:scale-[0.98] flex items-center gap-1.5"
+                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML"
+                      hx-push-url="false"
+                      title="Run current parsed plan">
+                ⚡ Run
+              </button>
+              <button type="button"
+                      class="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-[0.98] flex items-center gap-1"
+                      hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
+                      hx-target="#ai-conversation"
+                      hx-swap="innerHTML"
+                      hx-push-url="false">
+                🔄 Sync
+              </button>
+            </div>
+
+            <!-- hidden forms filled prior to submit -->
             <input type="hidden" name="model" id="ai-model-hidden" value="llama3.2:3b" />
             <input type="hidden" name="intent" id="ai-intent-hidden" value="auto" />
           </form>
         {% else %}
-          <div class="text-sm text-slate-500">Buat atau pilih thread untuk mulai chat.</div>
+          <div class="text-xs text-slate-400 text-center font-sans py-2.5">
+            ⚠️ Silakan buat atau pilih thread percakapan terlebih dahulu untuk menggunakan AI Copilot.
+          </div>
         {% endif %}
       </div>
+
     </div>
   </main>
 </div>
 
-{# =======================
-   Helpers (UI only)
-   ======================= #}
+{# ==========================================
+   Helper scripts (Auto-growing textarea, event listeners)
+   ========================================== #}
 <script>
-  // Pass model/intent ke hidden saat submit
-  function attachPlanFormParams(form) {
+  // Pass dropdown selections and implement instant UI update (user bubble + thinking animation) on submit
+  function handleChatSubmit(form) {
     const m = document.getElementById('ai-model').value;
     const i = document.getElementById('ai-intent').value;
     document.getElementById('ai-model-hidden').value = m;
     document.getElementById('ai-intent-hidden').value = i;
+
+    const input = document.getElementById('chat-input');
+    const scrollArea = document.getElementById('messages-scroll-area');
+    if (!input || !input.value.trim() || !scrollArea) return;
+
+    const text = input.value.trim();
+
+    // Escape helper to prevent XSS
+    const esc = (unsafe) => unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    // Instantly append User bubble
+    const userBubble = `
+      <div class="flex justify-end gap-3 max-w-[85%] ml-auto temp-bubble">
+        <div class="flex flex-col items-end space-y-1">
+          <div class="px-4 py-2.5 rounded-2xl bg-slate-900 text-slate-100 text-sm shadow-sm font-sans whitespace-pre-wrap leading-relaxed rounded-tr-none">
+            ${esc(text)}
+          </div>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
+            <span>👤 User</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Instantly append Thinking indicator bubble
+    const thinkingBubble = `
+      <div id="temp-thinking" class="flex justify-start gap-3 max-w-[85%] temp-bubble">
+        <div class="flex flex-col items-start space-y-1.5">
+          <div class="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 text-sm shadow-sm font-sans leading-relaxed rounded-tl-none">
+            <div class="flex items-center gap-2">
+              <div class="flex gap-1 items-center">
+                <span class="h-2 w-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0ms; display: inline-block;"></span>
+                <span class="h-2 w-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 150ms; display: inline-block;"></span>
+                <span class="h-2 w-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 300ms; display: inline-block;"></span>
+              </div>
+              <span class="text-xs text-slate-400 font-sans italic">ReconLens is thinking...</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
+            <span>🤖 thinking</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Hide empty state if visible
+    const emptyState = scrollArea.querySelector('.py-12') || scrollArea.querySelector('.flex.flex-col.items-center.justify-center');
+    if (emptyState) {
+      emptyState.style.display = 'none';
+    }
+
+    scrollArea.insertAdjacentHTML('beforeend', userBubble + thinkingBubble);
+
+    // Scroll to bottom of message list
+    scrollArea.scrollTop = scrollArea.scrollHeight;
+
+    // Clear composer area in the next tick of the event loop to ensure HTMX reads form value first
+    setTimeout(() => {
+      input.value = '';
+      input.style.height = 'auto';
+    }, 0);
   }
 
-  // New thread: Enter to submit; redirect ke ?thread=<id> pada afterRequest
+  // Handle new thread creations and redirect via query string on htmx afterRequest
   (function () {
     const inp = document.getElementById('new-thread-title');
     const btn = document.getElementById('btn-new-thread');
-    inp?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); btn?.click(); }});
-    document.body.addEventListener('htmx:afterRequest', (ev)=>{
+    inp?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        btn?.click();
+      }
+    });
+
+    document.body.addEventListener('htmx:afterRequest', (ev) => {
       const elt = ev.target;
       if (!elt || elt.id !== 'btn-new-thread') return;
       try {
         const j = JSON.parse(ev.detail.xhr.responseText || '{}');
         if (j && j.ok && j.thread_id) {
-          const u = new URL(location.href);
-          u.searchParams.set('thread', j.thread_id);
-          location.href = u.pathname + '?' + u.searchParams.toString();
+          location.href = '/targets/{{ scope }}/ai/command?thread=' + j.thread_id;
         }
       } catch(_) {}
     });
   })();
 
-  // Auto-scroll ke bawah tiap percakapan di-load / diperbarui
-  document.body.addEventListener('htmx:afterSwap', (ev)=>{
+  // Keep chat containers scrolled to bottom and focus textareas on AJAX swaps
+  document.body.addEventListener('htmx:afterSwap', (ev) => {
     if (ev?.detail?.target?.id === 'ai-conversation') {
       const box = ev.detail.target;
-      box.scrollTop = box.scrollHeight;
-      // fokuskan input biar cepat ngetik lagi
+      // Scroll to the absolute bottom of messages area
+      const innerScroll = box.querySelector('.overflow-y-auto');
+      if (innerScroll) {
+        innerScroll.scrollTop = innerScroll.scrollHeight;
+      } else {
+        box.scrollTop = box.scrollHeight;
+      }
+      // Re-focus composer area
       const t = document.getElementById('chat-input');
       t && t.focus();
     }
   });
 
-  // Chat UX: Enter kirim, Shift+Enter baris baru
-  document.addEventListener('keydown', (e)=>{
+  // Hotkey handlers for chat input (Enter to Send, Shift+Enter for new lines)
+  document.addEventListener('keydown', (e) => {
     const t = document.getElementById('chat-input');
     if (!t || document.activeElement !== t) return;
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -203,5 +311,16 @@
       form?.requestSubmit();
     }
   });
+
+  // Optional: Auto-grow textarea row size based on content height
+  (function() {
+    document.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t && t.id === 'chat-input') {
+        t.style.height = 'auto';
+        t.style.height = (t.scrollHeight) + 'px';
+      }
+    });
+  })();
 </script>
 {% endblock %}

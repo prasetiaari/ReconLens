@@ -1,10 +1,10 @@
 {# app/templates/overview.html #}
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block title %}Overview — {{ scope }}{% endblock %}
 
 {% block content %}
 {% set active = 'overview' %}
-{% include "_target_tabs.html" with context %}
+{% include "targets/partials/_target_tabs.html" with context %}
 
 <div class="mb-6">
   <h1 class="text-2xl font-semibold">Overview — <span class="font-mono">{{ scope }}</span></h1>

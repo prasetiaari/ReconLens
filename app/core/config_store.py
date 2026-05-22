@@ -55,7 +55,10 @@ def default_settings() -> Dict[str, Any]:
             "retention_days": 0,
         },
         "ai": {
+            "source": "local",
             "model": "llama3.2:3b",
+            "endpoint": "https://api.openai.com/v1/chat/completions",
+            "api_key": "",
             "autorun": False,
         },
     }
