@@ -7,10 +7,13 @@ services:
     ports:
       - "8003:8003"
     volumes:
+      # Mount the app folder for real-time local development hot-reloading!
+      - ./app:/app/app
       # Persist pentest output data on the host machine
       - ./outputs:/app/outputs
       # Persist user app settings on the host machine
       - ./app/config:/app/app/config
     environment:
       - PORT=8003
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     restart: unless-stopped
