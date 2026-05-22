@@ -1,0 +1,21 @@
+# Ignore Python virtual environments
+.venv/
+venv/
+env/
+
+# Ignore massive recon outputs (mounted dynamically as volume)
+outputs/
+
+# Ignore version control and local state
+.git/
+.gitignore
+.DS_Store
+
+# Ignore cache directories
+__pycache__/
+*.pyc
+.jinja_cache/
+.pytest_cache/
+
+# Ignore scratch files
+scratch/
