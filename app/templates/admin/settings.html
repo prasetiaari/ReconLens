@@ -314,6 +314,33 @@
         </div>
       </div>
 
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Disable AI Copilot</label>
+        {% set disable = ai.get('disable', False) %}
+        <div class="sm:col-span-2 flex items-center gap-2">
+          <input type="checkbox" name="ai_disable" class="h-4 w-4" {{ 'checked' if disable }}>
+          <span class="text-sm text-rose-600 font-medium">Hide AI Copilot tab and features from target workspace completely</span>
+        </div>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-center">
+        <label class="text-sm text-slate-600">Chat History Size</label>
+        {% set ctx_size = ai.get('ctx_size', 10) %}
+        <select name="ai_ctx_size" class="input w-full sm:col-span-2 max-w-xs">
+          <option value="0" {{ 'selected' if ctx_size==0 }}>Disabled (Stateless)</option>
+          <option value="5" {{ 'selected' if ctx_size==5 }}>Short (Last 5 messages)</option>
+          <option value="10" {{ 'selected' if ctx_size==10 }}>Standard (Last 10 messages)</option>
+          <option value="20" {{ 'selected' if ctx_size==20 }}>Long (Last 20 messages)</option>
+          <option value="50" {{ 'selected' if ctx_size==50 }}>Deep (Last 50 messages)</option>
+        </select>
+      </div>
+
+      <div class="grid sm:grid-cols-3 gap-3 items-start">
+        <label class="text-sm text-slate-600 mt-2">Custom System Prompt</label>
+        {% set system_prompt = ai.get('system_prompt', '') %}
+        <textarea name="ai_system_prompt" rows="8" class="input w-full sm:col-span-2 font-mono text-xs leading-relaxed" placeholder="Insert core system instructions... (Must instruct JSON format output)">{{ system_prompt }}</textarea>
+      </div>
+
       <div class="flex items-center justify-end gap-2 pt-2 border-t">
         <button class="btn btn-primary">Save</button>
       </div>

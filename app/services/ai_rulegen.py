@@ -138,6 +138,7 @@ def _call_ollama(
     timeout: int,
     temperature: float = 0.5,
     mode: str = "rules",  # "rules" | "command"
+    history: list = None,
 ) -> Any:
     """
     mode="rules"   : strict JSON array of rule objects
@@ -153,11 +154,15 @@ def _call_ollama(
         cloud_endpoint = ai_cfg.get("endpoint") or "https://api.openai.com/v1/chat/completions"
         cloud_api_key = ai_cfg.get("api_key") or ""
         cloud_model = ai_cfg.get("model") or "gpt-3.5-turbo"
+        ctx_size = ai_cfg.get("ctx_size", 10)
+        custom_system_prompt = ai_cfg.get("system_prompt", "")
     except Exception:
         source = "local"
         cloud_endpoint = "https://api.openai.com/v1/chat/completions"
         cloud_api_key = ""
         cloud_model = "gpt-3.5-turbo"
+        ctx_size = 10
+        custom_system_prompt = ""
 
     source = source.strip().lower()
 
@@ -170,7 +175,7 @@ def _call_ollama(
         )
         fmt = "json"
     elif mode == "command":
-        system_msg = (
+        system_msg = custom_system_prompt or (
             "You are an AI assistant inside ReconLens.\n"
             "Decide among four intents and ALWAYS return STRICT JSON (no markdown, no prose):\n"
             "1) {\"type\":\"chat\",\"reply\":\"...\"}\n"
@@ -188,6 +193,11 @@ def _call_ollama(
         system_msg = "You are a helpful AI."
         fmt = None
 
+    # Slice history based on settings context size
+    sliced_history = []
+    if history and ctx_size > 0:
+        sliced_history = history[-ctx_size:]
+
     if source == "cloud":
         # Call OpenAI / Cloud provider
         headers = {
@@ -196,12 +206,24 @@ def _call_ollama(
         if cloud_api_key:
             headers["Authorization"] = f"Bearer {cloud_api_key}"
 
+        messages_payload = [
+            {"role": "system", "content": system_msg}
+        ]
+        for m in sliced_history:
+            role = getattr(m, "role", None) or m.get("role") if isinstance(m, dict) else m.role
+            content = getattr(m, "content", None) or m.get("content") if isinstance(m, dict) else m.content
+            if role in ("user", "assistant"):
+                # Clean HTML tags and buttons from assistant replies for clean context
+                if role == "assistant" and ("Plan created" in content or "✔" in content or "hx-post" in content):
+                    continue
+                messages_payload.append({"role": role, "content": content})
+        
+        # Append current user prompt
+        messages_payload.append({"role": "user", "content": prompt})
+
         payload = {
             "model": cloud_model,
-            "messages": [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": prompt}
-            ],
+            "messages": messages_payload,
             "temperature": max(0.0, min(float(temperature), 1.0)),
         }
 
@@ -217,20 +239,37 @@ def _call_ollama(
         resp_text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         return resp_text
     else:
-        # Local Ollama
-        url = "http://localhost:11434/api/generate"
+        # Local Ollama using /api/chat (native messages support!)
+        url = "http://localhost:11434/api/chat"
+
+        messages_payload = [
+            {"role": "system", "content": system_msg}
+        ]
+        for m in sliced_history:
+            role = getattr(m, "role", None) or m.get("role") if isinstance(m, dict) else m.role
+            content = getattr(m, "content", None) or m.get("content") if isinstance(m, dict) else m.content
+            if role in ("user", "assistant"):
+                # Clean HTML tags and buttons from assistant replies for clean context
+                if role == "assistant" and ("Plan created" in content or "✔" in content or "hx-post" in content):
+                    continue
+                messages_payload.append({"role": role, "content": content})
+        
+        # Append current user prompt
+        messages_payload.append({"role": "user", "content": prompt})
+
         payload = {
             "model": model,
-            "prompt": prompt,
-            "system": system_msg,
+            "messages": messages_payload,
             "stream": False,
-            "format": fmt,  # let Ollama emit pure JSON
             "options": {"temperature": max(0.0, min(float(temperature), 1.0))},
         }
+        if fmt == "json":
+            payload["format"] = "json"
+
         r = requests.post(url, json=payload, timeout=(5, timeout))
         r.raise_for_status()
         data = r.json()
-        return data.get("response")
+        return data.get("message", {}).get("content") or ""
 
 
 # ============================
@@ -705,7 +744,8 @@ def _parse_prompt_to_plan_or_chat_inner(
     model: str = DEFAULT_MODEL,
     intent: str = "auto",
     timeout: int = DEFAULT_TIMEOUT,
-    err_container: list = None
+    err_container: list = None,
+    history: list = None
 ) -> Dict[str, Any]:
     """
     Return salah satu:
@@ -716,12 +756,82 @@ def _parse_prompt_to_plan_or_chat_inner(
     Fallback: heuristik → chat/plan sederhana.
     """
     p = (prompt or "").strip()
-    # Heuristik cepat: greetings & small-talk → langsung chat
+    lower = p.lower()
+
+    # Heuristik cepat 1: greetings & small-talk
     smalltalk = ("halo", "hai", "hello", "hei", "thanks", "terima kasih", "apa kabar")
-    if any(tok in p.lower() for tok in smalltalk):
+    if any(tok in lower for tok in smalltalk):
         return {"type": "chat", "reply": f"Halo! Siap bantu di scope {scope}. Mau analisa apa?"}
 
+    # Heuristik cepat 2: Operasi matematika dasar (kalkulator instan)
+    math_match = re.search(r"(\d+)\s*([x*+\-\/])\s*(\d+)", lower)
+    if math_match:
+        try:
+            num1 = int(math_match.group(1))
+            op = math_match.group(2)
+            num2 = int(math_match.group(3))
+            if op in ("x", "*"):
+                res_val = num1 * num2
+                op_sign = "x"
+            elif op == "+":
+                res_val = num1 + num2
+                op_sign = "+"
+            elif op == "-":
+                res_val = num1 - num2
+                op_sign = "-"
+            elif op == "/":
+                res_val = num1 / num2 if num2 != 0 else "Infinity"
+                op_sign = "/"
+            return {
+                "type": "chat",
+                "reply": f"Hasil kalkulasi dari **{num1} {op_sign} {num2}** adalah **{res_val}**, bro!"
+            }
+        except Exception:
+            pass
+
+    # Heuristik cepat 3: Pencarian kata kunci / Grep pada file temuan target
+    if any(k in lower for k in ["apakah ada", "cari string", "temukan string", "mengandung string", "mengandung kata", "grep"]):
+        if "string" in lower or '"' in p or "'" in p or any(k in lower for k in ["employer", "admin", "config", "api", "v1", "git", "env", "login"]):
+            return {
+                "type": "actions",
+                "plan": {
+                    "summary": f"Pencarian kata kunci dalam file temuan target.",
+                    "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
+                }
+            }
+
+    # Bypass cepat jika mengandung intent pembuatan/penulisan berkas/script
+    has_creation_intent = any(w in lower for w in ["buat", "bikin", "create", "save", "tulis", "write", "generate", "susun"])
+
+    # Heuristik cepat 4: Ping / Tes konektivitas (hanya jika bukan intent membuat script)
+    if not has_creation_intent:
+        ping_match = re.search(r"ping\s+(?:ke\s+)?([a-zA-Z0-9.\-_:]+)", lower)
+        if ping_match:
+            host_to_ping = ping_match.group(1).strip()
+            return {
+                "type": "actions",
+                "plan": {
+                    "summary": f"Melakukan konektivitas ping ke {host_to_ping}.",
+                    "actions": [{"tool": "ping", "args": {"host": host_to_ping}}]
+                }
+            }
+
+    # Heuristik cepat 5: Jalankan Script (hanya jika bukan intent membuat script)
+    if not has_creation_intent:
+        script_match = re.search(r"(?:jalankan|run|execute)\s+script\s+([a-zA-Z0-9.\-_:]+)(?:\s+(.*))?", lower)
+        if script_match:
+            script_file = script_match.group(1).strip()
+            script_args = script_match.group(2).strip() if script_match.group(2) else ""
+            return {
+                "type": "actions",
+                "plan": {
+                    "summary": f"Menjalankan script {script_file} dari folder khusus target.",
+                    "actions": [{"tool": "execute_script", "args": {"filename": script_file, "args": script_args}}]
+                }
+            }
+
     # Coba LLM mode "command"
+    resp = None
     try:
         resp = _call_ollama(
             prompt=f"[scope:{scope}][intent:{intent}] {p}",
@@ -729,11 +839,14 @@ def _parse_prompt_to_plan_or_chat_inner(
             timeout=timeout,
             temperature=0.3,
             mode="command",
+            history=history,
         )
         data = _json_loads_loose(resp)
-        if isinstance(data, dict) and "type" in data:
-            t = str(data.get("type") or "").lower()
-            if t in ("chat", "actions", "confirm", "revise"):
+        if not isinstance(data, dict) or "type" not in data:
+            raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")
+        
+        t = str(data.get("type") or "").lower()
+        if t in ("chat", "actions", "confirm", "revise"):
                 acts = data.get("actions")
                 if acts is not None and not isinstance(acts, list):
                     acts = [acts]
@@ -770,14 +883,62 @@ def _parse_prompt_to_plan_or_chat_inner(
                             "target_host": target_host
                         }
                         break
+
+                if t in ("actions", "confirm"):
+                    if not acts:
+                        reply = data.get("summary") or data.get("reply") or "Saya siap membantu melakukan analisis pasif maupun aktif. Silakan pilih tool pemindaian yang ingin dijalankan!"
+                        return {"type": "chat", "reply": reply, "meta": data.get("meta")}
+
+                    # Detect if any tool in acts is a background CLI tool
+                    is_cli = False
+                    cli_tool_name = "Recon tool"
+                    for a in acts:
+                        tool = str(a.get("tool") or "").lower()
+                        if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder"):
+                            is_cli = True
+                            cli_tool_name = tool.upper()
+                            break
+
+                    if is_cli:
+                        reply = data.get("summary") or data.get("reply") or f"Saya mendeteksi Anda ingin menjalankan pemindaian menggunakan **{cli_tool_name}**. Silakan klik tombol di bawah ini untuk meluncurkannya di CLI Runner Console!"
+                        return {
+                            "type": "chat",
+                            "reply": reply,
+                            "meta": data.get("meta")
+                        }
+
+                    return {
+                        "type": "actions",
+                        "plan": {
+                            "summary": data.get("summary") or data.get("reply") or "Rencana aksi otomatis.",
+                            "actions": acts
+                        },
+                        "meta": data.get("meta")
+                    }
+
                 return data
     except Exception as e:
         if err_container is not None:
             err_container.append(f"{type(e).__name__}: {str(e)}")
         print(f"[rulegen] Fallback: {e}")
+        # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
+        # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
+        if resp and len(resp.strip()) > 5:
+            return {"type": "chat", "reply": resp}
 
     # Fallback logika ringan (Heuristik)
     lower = p.lower()
+
+    # 0. Keyword search / Grep in target files
+    if any(k in lower for k in ["apakah ada", "cari string", "temukan string", "mengandung string", "mengandung kata", "grep"]):
+        if "string" in lower or '"' in p or "'" in p or any(k in lower for k in ["employer", "admin", "config", "api", "v1", "git", "env", "login"]):
+            return {
+                "type": "actions",
+                "plan": {
+                    "summary": f"Pencarian kata kunci dalam file temuan target.",
+                    "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
+                }
+            }
     
     # 1. Dirsearch
     if any(k in lower for k in ["dirsearch", "dir search", "directory search", "scan dir"]):
@@ -855,17 +1016,19 @@ def _parse_prompt_to_plan_or_chat_inner(
     # Default fallback plans
     if "subdomain" in lower and ("aktif" in lower or "alive" in lower or "200" in lower):
         return {
-            "type": "confirm",
-            "summary": "Menampilkan seluruh subdomain aktif.",
-            "actions": [{"tool": "subdomains_alive", "args": {"target": scope}}],
-            "needs_confirmation": True,
+            "type": "actions",
+            "plan": {
+                "summary": "Menampilkan seluruh subdomain aktif.",
+                "actions": [{"tool": "subdomains_alive", "args": {"target": scope}}]
+            }
         }
     if any(k in lower for k in ["insight", "ringkas", "summary", "analisa", "analyze"]):
         return {
-            "type": "confirm",
-            "summary": "Analisa temuan saat ini.",
-            "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}],
-            "needs_confirmation": True,
+            "type": "actions",
+            "plan": {
+                "summary": "Analisa temuan saat ini.",
+                "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
+            }
         }
 
     return {"type": "chat", "reply": "Catat, bro. Saya siap meluncurkan tools pemindaian pasif maupun aktif. Silakan ketik perintah seperti 'Jalankan dirsearch' atau 'Cari archive urls via GAU'!"}
@@ -877,7 +1040,8 @@ def parse_prompt_to_plan_or_chat(
     scope: str,
     model: str = DEFAULT_MODEL,
     intent: str = "auto",
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int = DEFAULT_TIMEOUT,
+    history: list = None
 ) -> Dict[str, Any]:
     from app.core.config_store import load_settings
 
@@ -907,7 +1071,8 @@ def parse_prompt_to_plan_or_chat(
         model=model,
         intent=intent,
         timeout=timeout,
-        err_container=err_container
+        err_container=err_container,
+        history=history
     )
 
     # Add model info to result

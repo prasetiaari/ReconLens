@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  reconlens:
+    build: .
+    container_name: reconlens
+    ports:
+      - "8003:8003"
+    volumes:
+      # Persist pentest output data on the host machine
+      - ./outputs:/app/outputs
+      # Persist user app settings on the host machine
+      - ./app/config:/app/app/config
+    environment:
+      - PORT=8003
+    restart: unless-stopped

@@ -22,6 +22,11 @@ def _store(request: Request, scope: str) -> AiCmdStore:
 # ---------- UI ----------
 @router.get("/{scope}/ai/command", response_class=HTMLResponse)
 async def ai_command_home(request: Request, scope: str, thread: Optional[str] = None):
+    from app.core.config_store import load_settings
+    from fastapi.responses import RedirectResponse
+    if (load_settings() or {}).get("ai", {}).get("disable", False):
+        return RedirectResponse(url=f"/targets/{scope}")
+
     T = get_templates(request)
     st = _store(request, scope)
     threads = st.list_threads()
@@ -66,19 +71,37 @@ def _last_meaningful_user(st: AiCmdStore, thread_id: str) -> Optional[str]:
                 return txt
     return None
 
-def _confirmation_card(scope: str, thread_id: str) -> str:
-    """HTML kecil untuk konfirmasi run/discard."""
+def _confirmation_card(scope: str, thread_id: str, plan: Dict[str, Any]) -> str:
+    """HTML kecil untuk konfirmasi run/discard dengan list tindakan."""
+    actions = plan.get("actions") or []
+    items = []
+    for a in actions:
+        tool = a.get("tool") or ""
+        args = a.get("args") or {}
+        # Format argumen secara ringkas
+        args_str = ", ".join(f"{k}={v}" for k, v in args.items() if k != "target")
+        args_lbl = f" ({args_str})" if args_str else ""
+        items.append(f"<li><code>{tool}</code>{args_lbl}</li>")
+
+    list_html = ""
+    if items:
+        list_html = (
+            "<div class='text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 mt-1'>Tindakan yang akan dijalankan:</div>"
+            "<ul class='list-disc pl-5 text-sm space-y-1 mb-3 text-slate-700'>" + "".join(items) + "</ul>"
+        )
+
     return (
-        "<div class='rounded border p-3 bg-amber-50 text-slate-800'>"
-        "<div class='font-medium mb-2'>Rencana aksi siap. Jalankan sekarang?</div>"
+        "<div class='rounded border p-3 bg-amber-50 text-slate-800 border-amber-200 shadow-sm'>"
+        "<div class='font-medium mb-2 text-amber-900'>Rencana aksi siap. Jalankan sekarang?</div>"
+        f"{list_html}"
         f"<div class='flex gap-2'>"
         f"<form hx-post='/targets/{scope}/ai/command/thread/{thread_id}/run' "
         "      hx-target='#ai-conversation' hx-swap='innerHTML' class='inline'>"
-        "  <button class='px-3 py-1.5 rounded bg-emerald-600 text-white text-sm hover:bg-emerald-700'>Run</button>"
+        "  <button class='px-3 py-1.5 rounded bg-emerald-600 text-white text-sm hover:bg-emerald-700 font-medium transition shadow-sm'>Run</button>"
         "</form>"
         f"<form hx-post='/targets/{scope}/ai/command/thread/{thread_id}/discard' "
         "      hx-target='#ai-conversation' hx-swap='innerHTML' class='inline'>"
-        "  <button class='px-3 py-1.5 rounded bg-slate-200 text-slate-800 text-sm hover:bg-slate-300'>Discard</button>"
+        "  <button class='px-3 py-1.5 rounded bg-slate-200 text-slate-800 text-sm hover:bg-slate-300 font-medium transition shadow-sm'>Discard</button>"
         "</form>"
         "</div></div>"
     )
@@ -95,6 +118,7 @@ async def ai_command_parse(
 ):
     T = get_templates(request)
     st = _store(request, scope)
+    history_msgs = st.read_msgs(thread_id)
 
     user_text = (prompt or "").strip()
     st.append_msg(thread_id, Msg.new("user", user_text, {"model": model, "intent": intent}))
@@ -109,7 +133,8 @@ async def ai_command_parse(
 
     # Panggil wrapper parser
     parsed = parse_prompt_to_plan_or_chat(
-        prompt=base_prompt or user_text, scope=scope, model=model, intent=intent
+        prompt=base_prompt or user_text, scope=scope, model=model, intent=intent,
+        history=history_msgs
     )
 
     # Jika type=actions -> simpan plan, minta konfirmasi
@@ -118,7 +143,7 @@ async def ai_command_parse(
         st.save_plan(thread_id, plan)
         # Catat pesan ringkas + kartu konfirmasi
         st.append_msg(thread_id, Msg.new("assistant", "✔ Plan created.", {}))
-        st.append_msg(thread_id, Msg.new("assistant", _confirmation_card(scope, thread_id), {"html": True}))
+        st.append_msg(thread_id, Msg.new("assistant", _confirmation_card(scope, thread_id, plan), {"html": True}))
     else:
         # Chat biasa
         reply = parsed.get("reply") or parsed.get("message") or "Baik."
@@ -143,11 +168,26 @@ async def ai_command_run(request: Request, scope: str, thread_id: str):
         items = []
         for a in state.get("actions", []):
             tool = a.get("tool")
-            ok = a.get("result", {}).get("ok")
-            items.append(f"{'✅' if ok else '❌'} <code>{tool}</code>")
+            res = a.get("result") or {}
+            ok = res.get("ok")
+            detail = ""
+            if not ok:
+                err_msg = res.get("error") or "Gagal menjalankan tugas."
+                detail = f" — <span class='text-rose-500 text-xs'>{err_msg}</span>"
+            else:
+                # Untuk tool apa pun yang sukses, jika ada summary/message, tampilkan secara premium!
+                summ = res.get("summary") or {}
+                status = summ.get("status") or ""
+                msg = summ.get("message") or ""
+                if status or msg:
+                    detail = f"<br/><span class='text-slate-700 text-xs font-semibold'>{status}</span>{msg}"
+                elif "alive" in res:
+                    # Fallback subdomains_alive list
+                    detail = f"<br/><span class='text-slate-500 text-xs'>Ditemukan {res.get('count', 0)} subdomain aktif.</span>"
+            items.append(f"<li>{'✅' if ok else '❌'} <code>{tool}</code>{detail}</li>")
         html = (
-            "<div class='text-sm'>Plan executed.</div>"
-            "<ul class='list-disc ml-5 text-sm'>" + "".join(f"<li>{x}</li>" for x in items) + "</ul>"
+            "<div class='text-sm font-medium text-slate-700 mb-1'>Plan executed:</div>"
+            "<ul class='list-disc pl-5 text-sm space-y-1'>" + "".join(items) + "</ul>"
         )
         st.append_msg(thread_id, Msg.new("assistant", html, {"html": True}))
     except Exception:

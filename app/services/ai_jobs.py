@@ -65,12 +65,95 @@ def _unique_sorted(items: List[str]) -> List[str]:
 
 # ----------------- actions -----------------
 
+def _extract_search_keyword(query: str) -> Optional[str]:
+    # 1. Cari string di dalam tanda kutip ganda atau tunggal
+    m = re.findall(r'["\']([^"\']+)["\']', query)
+    if m:
+        return m[0].strip()
+
+    # 2. Cari setelah kata "string", "kata", "mengandung"
+    lower = query.lower()
+    for pattern in [r"string\s+(\w+)", r"kata\s+(\w+)", r"mengandung\s+(\w+)"]:
+        match = re.search(pattern, lower)
+        if match:
+            return match.group(1).strip()
+
+    # 3. Cari kata benda/kata kerja spesifik yang dicari
+    words = [w.strip("?,.!\n\r\"'") for w in query.split()]
+    for w in words:
+        if w.lower() in ("employer", "admin", "config", "api", "v1", "git", "env", "login"):
+            return w
+
+    return None
+
 def _act_analyze(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Ringkas hasil klasifikasi jika ada."""
+    """Ringkas hasil klasifikasi jika ada, atau cari kecocokan kata kunci pada berkas temuan."""
     cache = _cache_dir(outputs_root, scope)
+    root = outputs_root / scope
+
+    query = args.get("query") or ""
+    keyword = _extract_search_keyword(query) if query else None
+
+    if keyword:
+        keyword_lower = keyword.lower()
+        matches: List[str] = []
+
+        # 1. Scan urls.txt
+        urls_file = root / "urls.txt"
+        if urls_file.exists():
+            for line in _read_lines(urls_file):
+                if keyword_lower in line.lower():
+                    matches.append(line)
+
+        # 2. Scan subdomains.txt
+        sub_file = root / "subdomains.txt"
+        if sub_file.exists():
+            for line in _read_lines(sub_file):
+                if keyword_lower in line.lower():
+                    matches.append(line)
+
+        matches = _unique_sorted(matches)
+
+        if matches:
+            capped = matches[:15]
+            items = "".join([f"<li><code>{_html_escape(m)}</code></li>" for m in capped])
+            suffix = f"<li>... dan {len(matches) - 15} lainnya</li>" if len(matches) > 15 else ""
+
+            return {
+                "ok": True,
+                "summary": {
+                    "status": f"Ditemukan {len(matches)} hasil yang cocok untuk kata kunci '{keyword}':",
+                    "message": f"<ul class='list-disc pl-5 mt-1 space-y-1'>{items}{suffix}</ul>"
+                }
+            }
+        else:
+            if urls_file.exists() or sub_file.exists():
+                return {
+                    "ok": True,
+                    "summary": {
+                        "status": f"Tidak ditemukan kecocokan untuk kata kunci '{keyword}'.",
+                        "message": "Semua berkas temuan (urls.txt, subdomains.txt) telah diperiksa."
+                    }
+                }
+            else:
+                return {
+                    "ok": True,
+                    "summary": {
+                        "status": "Berkas temuan kosong atau belum ada.",
+                        "message": "Silakan jalankan pengumpulan subdomain/URL terlebih dahulu."
+                    }
+                }
+
     f = cache / "ai_classify.json"
     if not f.exists():
-        return {"ok": False, "error": "ai_classify.json not found"}
+        subdomains = _collect_alive_subdomains(outputs_root, scope)
+        return {
+            "ok": True,
+            "summary": {
+                "status": f"Belum ada hasil klasifikasi AI mendalam. Terdeteksi {len(subdomains)} subdomain aktif saat ini.",
+                "message": "Silakan jalankan pengumpulan URL (seperti GAU/Waymore) terlebih dahulu, lalu jalankan klasifikasi AI untuk laporan mendalam!"
+            }
+        }
     data = json.loads(f.read_text(encoding="utf-8"))
     return {"ok": True, "summary": data.get("summary", {})}
 
@@ -124,6 +207,225 @@ def _collect_alive_subdomains(outputs_root: Path, scope: str) -> List[str]:
 
     return []
 
+def _act_ping(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Lakukan ping ke host/IP."""
+    host = args.get("host") or args.get("ip") or "8.8.8.8"
+    import subprocess
+    try:
+        # Gunakan opsi -c 3 untuk macOS/Linux (3 packets)
+        res = subprocess.run(["ping", "-c", "3", host], capture_output=True, text=True, timeout=10)
+        output = res.stdout + res.stderr
+        ok = (res.returncode == 0)
+        return {
+            "ok": ok,
+            "summary": {
+                "status": f"Hasil ping ke {host}:",
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output)}</pre>"
+            }
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def _act_execute_code(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Jalankan kode Python yang dibuat oleh AI secara dinamis (Code Interpreter)."""
+    code = args.get("code") or ""
+    if not code:
+        return {"ok": False, "error": "No code provided"}
+
+    # --- Guard Keamanan Sandbox Python ---
+    code_lower = code.lower()
+    dangerous_keywords = [
+        "os.system", "subprocess", "eval(", "exec(", "shutil.rmtree", "os.remove", 
+        "os.unlink", "os.rmdir", "os.chmod", "os.chown", "os.kill", "sys.exit",
+        "import os", "import sys", "import shutil", "import subprocess", "__builtins__"
+    ]
+    for kw in dangerous_keywords:
+        if kw in code_lower:
+            return {
+                "ok": False,
+                "error": f"❌ Security Guard: Kata kunci berbahaya '{kw}' diblokir di Python Sandbox demi keamanan harddisk Anda!"
+            }
+
+    import sys
+    import io
+    import traceback
+
+    # Siapkan environment yang kaya konteks untuk AI script (Hanya beri Path & json, sangat aman!)
+    local_vars = {
+        "outputs_root": outputs_root,
+        "scope": scope,
+        "target_dir": outputs_root / scope,
+        "Path": Path,
+        "json": json,
+    }
+
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    redirected_output = io.StringIO()
+    sys.stdout = redirected_output
+    sys.stderr = redirected_output
+
+    try:
+        # Eksekusi script python
+        exec(code, globals(), local_vars)
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        output = redirected_output.getvalue()
+        return {
+            "ok": True,
+            "summary": {
+                "status": "Hasil eksekusi kode AI (Code Interpreter):",
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or 'Kode berhasil dijalankan tanpa output.')}</pre>"
+            }
+        }
+    except Exception as e:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        tb = traceback.format_exc()
+        return {
+            "ok": False,
+            "error": f"Error saat menjalankan kode:\n{tb}"
+        }
+
+def _act_run_command(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Jalankan perintah bash/shell secara dinamis."""
+    cmd = args.get("command") or args.get("cmd") or ""
+    if not cmd:
+        return {"ok": False, "error": "No command provided"}
+
+    # --- Guard Keamanan Sandbox Bash ---
+    cmd_lower = cmd.lower().strip()
+    dangerous_binaries = ["sudo", "rm ", "rm -", "mv ", "chmod ", "chown ", "dd ", "mkfs", "shutdown", "reboot", "poweroff"]
+    for db in dangerous_binaries:
+        if db in cmd_lower:
+            return {
+                "ok": False,
+                "error": f"❌ Security Guard: Perintah berbahaya '{db}' diblokir di Bash Sandbox demi keamanan harddisk Anda!"
+            }
+
+    # Cegah Directory Traversal keluar dari folder target
+    if ".." in cmd:
+        return {
+            "ok": False,
+            "error": "❌ Security Guard: Directory traversal '..' diblokir! Seluruh perintah harus tetap berada di folder target."
+        }
+
+    import subprocess
+    try:
+        # Batasi waktu eksekusi agar aman
+        target_dir = outputs_root / scope
+        target_dir.mkdir(parents=True, exist_ok=True)
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=str(target_dir))
+        output = res.stdout + res.stderr
+        return {
+            "ok": (res.returncode == 0),
+            "summary": {
+                "status": f"Hasil eksekusi perintah: <code>{_html_escape(cmd)}</code>",
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
+            }
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def _act_save_script(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Simpan script yang dibuat AI ke dalam folder khusus target."""
+    filename = args.get("filename") or args.get("name") or ""
+    content = args.get("content") or args.get("code") or ""
+
+    if not filename:
+        return {"ok": False, "error": "Nama berkas script wajib disertakan."}
+    if not content:
+        return {"ok": False, "error": "Isi/konten script wajib disertakan."}
+
+    # --- Guard Keamanan Jalur ---
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return {"ok": False, "error": "❌ Security Guard: Path traversal terdeteksi dalam nama berkas!"}
+
+    allowed_exts = (".py", ".sh", ".txt")
+    if not any(filename.endswith(ext) for ext in allowed_exts):
+        return {"ok": False, "error": f"❌ Security Guard: Hanya berkas dengan ekstensi {allowed_exts} yang diizinkan!"}
+
+    # --- Guard Konten Script ---
+    content_lower = content.lower()
+    dangerous_keywords = ["shutil.rmtree", "os.remove", "os.unlink", "os.rmdir", "os.chmod", "os.chown", "os.kill", "sys.exit"]
+    for kw in dangerous_keywords:
+        if kw in content_lower:
+            return {"ok": False, "error": f"❌ Security Guard: Konten mengandung kata kunci berbahaya '{kw}'!"}
+
+    # Tulis berkas
+    target_dir = outputs_root / scope
+    scripts_dir = target_dir / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+
+    script_path = scripts_dir / filename
+    try:
+        script_path.write_text(content, encoding="utf-8")
+        if filename.endswith(".sh"):
+            import os
+            try:
+                os.chmod(str(script_path), 0o755)
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "summary": {
+                "status": f"Script berhasil disimpan!",
+                "message": f"Berkas disimpan sebagai: <code>{_html_escape(str(script_path.relative_to(outputs_root)))}</code><br/>"
+                           f"Anda sekarang dapat meminta AI untuk mengeksekusi script ini."
+            }
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Gagal menulis script: {str(e)}"}
+
+def _act_execute_script(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Jalankan script yang tersimpan di folder khusus target."""
+    filename = args.get("filename") or args.get("name") or ""
+    script_args = args.get("args") or ""
+
+    if not filename:
+        return {"ok": False, "error": "Nama berkas script wajib disertakan."}
+
+    # --- Guard Keamanan Jalur ---
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return {"ok": False, "error": "❌ Security Guard: Path traversal terdeteksi dalam nama berkas!"}
+
+    target_dir = outputs_root / scope
+    script_path = target_dir / "scripts" / filename
+    if not script_path.exists():
+        return {"ok": False, "error": f"Berkas script '{filename}' tidak ditemukan di folder khusus target."}
+
+    # Tentukan interpreter
+    if filename.endswith(".py"):
+        cmd = f"python3 {filename} {script_args}"
+    elif filename.endswith(".sh"):
+        cmd = f"./{filename} {script_args}"
+    else:
+        return {"ok": False, "error": "Hanya script .py dan .sh yang dapat dijalankan."}
+
+    # --- Guard Keamanan Bash command ---
+    cmd_lower = cmd.lower().strip()
+    dangerous_binaries = ["sudo", "rm ", "rm -", "mv ", "chmod ", "chown ", "dd ", "mkfs", "shutdown", "reboot", "poweroff"]
+    for db in dangerous_binaries:
+        if db in cmd_lower:
+            return {
+                "ok": False,
+                "error": f"❌ Security Guard: Perintah berbahaya '{db}' diblokir di Bash Sandbox demi keamanan harddisk Anda!"
+            }
+
+    import subprocess
+    try:
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=str(target_dir / "scripts"))
+        output = res.stdout + res.stderr
+        return {
+            "ok": (res.returncode == 0),
+            "summary": {
+                "status": f"Hasil eksekusi script: <code>{_html_escape(cmd)}</code>",
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
+            }
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 def _act_subdomains_alive(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str, Any]:
     hosts = _collect_alive_subdomains(outputs_root, scope)
     return {"ok": True, "alive": hosts, "count": len(hosts)}
@@ -132,6 +434,11 @@ def _act_subdomains_alive(outputs_root: Path, scope: str, args: Dict[str, Any]) 
 ACTION_REGISTRY: Dict[str, Callable[[Path, str, Dict[str, Any]], Dict[str, Any]]] = {
     "analyze": _act_analyze,
     "subdomains_alive": _act_subdomains_alive,
+    "ping": _act_ping,
+    "execute_code": _act_execute_code,
+    "run_command": _act_run_command,
+    "save_script": _act_save_script,
+    "execute_script": _act_execute_script,
     # alias untuk parser yang mungkin memakai nama lain
     "list_active_subdomains": _act_subdomains_alive,
     "LIST_ACTIVE_SUBDOMAINS": _act_subdomains_alive,

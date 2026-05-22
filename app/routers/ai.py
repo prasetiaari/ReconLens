@@ -195,6 +195,11 @@ async def ai_classify_get(request: Request, scope: str):
 # === AI OVERVIEW (landing) ===
 @router.get("/{scope}/ai", response_class=HTMLResponse)
 async def ai_overview(request: Request, scope: str):
+    from app.core.config_store import load_settings
+    from fastapi.responses import RedirectResponse
+    if (load_settings() or {}).get("ai", {}).get("disable", False):
+        return RedirectResponse(url=f"/targets/{scope}")
+
     settings   = get_settings(request)
     templates  = get_templates(request)
     outputs    = Path(settings.OUTPUTS_DIR)
@@ -227,6 +232,11 @@ async def ai_overview(request: Request, scope: str):
     
 @router.get("/{scope}/ai/insights", response_class=HTMLResponse)
 async def ai_dashboard(request: Request, scope: str):
+    from app.core.config_store import load_settings
+    from fastapi.responses import RedirectResponse
+    if (load_settings() or {}).get("ai", {}).get("disable", False):
+        return RedirectResponse(url=f"/targets/{scope}")
+
     settings   = get_settings(request)
     templates  = get_templates(request)
     outputs    = Path(settings.OUTPUTS_DIR)

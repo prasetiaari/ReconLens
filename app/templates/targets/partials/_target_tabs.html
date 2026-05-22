@@ -26,10 +26,12 @@
      class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='subdomains' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
     Subdomains
   </a>
-<a href="/targets/{{ scope_val }}/ai"
-   class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='ai' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
-  AI
-</a>
+  {% if not is_ai_disabled() %}
+  <a href="/targets/{{ scope_val }}/ai"
+     class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='ai' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+    AI
+  </a>
+  {% endif %}
   {% set dirsearch_stat = stats_map.get('dirsearch') %}
   {% if dirsearch_stat and (dirsearch_stat.lines or 0) > 0 %}
     <a href="/targets/{{ scope }}/dirsearch"

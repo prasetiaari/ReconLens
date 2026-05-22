@@ -164,6 +164,9 @@ async def settings_ai(request: Request):
     endpoint = form.get("ai_endpoint", "https://api.openai.com/v1/chat/completions")
     api_key = form.get("ai_api_key", "")
     autorun = _as_bool(form.get("ai_autorun"), False)
+    disable = _as_bool(form.get("ai_disable"), False)
+    ctx_size = _as_int(form.get("ai_ctx_size"), 10)
+    system_prompt = form.get("ai_system_prompt", "").strip()
 
     settings = load_settings() or {}
     ai = _ensure_nested(settings, ["ai"])
@@ -172,6 +175,10 @@ async def settings_ai(request: Request):
     ai["endpoint"] = endpoint
     ai["api_key"] = api_key
     ai["autorun"] = autorun
+    ai["disable"] = disable
+    ai["ctx_size"] = ctx_size
+    if system_prompt:
+        ai["system_prompt"] = system_prompt
 
     ok, errs = save_settings(settings)
     return _saved_fragment(ok, errs, wants_json)

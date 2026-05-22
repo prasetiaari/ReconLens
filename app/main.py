@@ -22,6 +22,14 @@ def init_templates(settings: Settings) -> Jinja2Templates:
     templates.env.bytecode_cache = FileSystemBytecodeCache(directory=cache_dir)
     templates.env.filters["humansize"] = humansize
     templates.env.filters["timeago"] = timeago
+
+    # Register global function to check if AI copilot is disabled
+    from app.core.config_store import load_settings
+    def is_ai_disabled() -> bool:
+        cfg = load_settings() or {}
+        return bool(cfg.get("ai", {}).get("disable", False))
+    templates.env.globals["is_ai_disabled"] = is_ai_disabled
+
     return templates
 
 
