@@ -29,6 +29,8 @@
     gau --verbose --o  outputs/{{ scope }}/urls.txt {{ scope }}
 {%- elif tool == 'waymore' -%}
     waymore -i {{ scope }} -mode U -oU outputs/{{ scope }}/urls.txt --verbose
+{%- elif tool == 'urlfinder' -%}
+    urlfinder -d {{ scope }} -all -o outputs/{{ scope }}/urls.txt
 {%- elif tool == 'subfinder' -%}
     subfinder -d {{ scope }} -silent -all
 {%- elif tool == 'amass' -%}
@@ -234,6 +236,9 @@
         return;
       }
       currentJob = jobId;
+      if (window.parent && typeof window.parent.onCliJobStarted === 'function') {
+        window.parent.onCliJobStarted(tool);
+      }
 
       const streamURL = apiPath('stream', jobId);
       es = new EventSource(streamURL);
@@ -243,6 +248,9 @@
           try { es.close(); } catch(_){}
           es = null;
           append("[done] finished\n");
+          if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+            window.parent.onCliJobFinished('done');
+          }
           return;
         }
         append(ev.data + "\n");
@@ -252,10 +260,16 @@
         setRunning(false);
         try { es.close(); } catch(_){}
         es = null;
+        if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+          window.parent.onCliJobFinished('error');
+        }
       };
     }catch(err){
       append(`[error] ${err && err.message ? err.message : err}\n`);
       setRunning(false);
+      if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+        window.parent.onCliJobFinished('error');
+      }
     }
   }
 
@@ -268,6 +282,9 @@
     setRunning(false);
     if (es) { try { es.close(); } catch(_){ } es = null; }
     append("[info] cancel requested\n");
+    if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+      window.parent.onCliJobFinished('cancelled');
+    }
   }
 
   runBtn?.addEventListener('click', startJob);
@@ -279,6 +296,42 @@
       startJob();
     }
   });
+
+  // Auto-reattach if 'job' query parameter is present!
+  const urlParams = new URLSearchParams(window.location.search);
+  const reattachJobId = urlParams.get('job');
+  if (reattachJobId) {
+    currentJob = reattachJobId;
+    setRunning(true);
+    const streamURL = apiPath('stream', reattachJobId);
+    es = new EventSource(streamURL);
+    es.onmessage = (ev) => {
+      if (ev.data === '[[DONE]]'){
+        setRunning(false);
+        try { es.close(); } catch(_){}
+        es = null;
+        append("[done] finished\n");
+        if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+          window.parent.onCliJobFinished('done');
+        }
+        return;
+      }
+      append(ev.data + "\n");
+    };
+    es.onerror = () => {
+      append("[error] stream connection lost\n");
+      setRunning(false);
+      try { es.close(); } catch(_){}
+      es = null;
+      if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+        window.parent.onCliJobFinished('error');
+      }
+    };
+    // Notify parent immediately that job has started (re-attached)
+    if (window.parent && typeof window.parent.onCliJobStarted === 'function') {
+      window.parent.onCliJobStarted(tool);
+    }
+  }
 })();
 </script>
 {% endblock %}

@@ -46,6 +46,7 @@ async def target_detail(request: Request, scope: str):
     stats = stats_pack["stats"]
     urls_count = stats_pack["urls_count"]
     dash = stats_pack["dash"]
+    tool_counts = stats_pack.get("tool_counts", {"gau": 0, "waymore": 0, "urlfinder": 0})
 
     total_lines = sum((s.get("lines") or 0) for s in stats)
     stats_map = {row["module"]: row for row in stats}
@@ -57,6 +58,7 @@ async def target_detail(request: Request, scope: str):
         "urls_count": urls_count,
         "stats_map": stats_map,
         "dash": dash,
+        "tool_counts": tool_counts,
         "has_modules": total_lines > 0,
         "has_timeago": True,
     }

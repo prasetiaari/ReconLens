@@ -46,6 +46,9 @@ def default_settings() -> Dict[str, Any]:
             "prefer_https": True,
             "if_head_then_get": True,
             "delay_ms": 0,
+            "gau_binary_path": "/usr/local/bin/gau",
+            "waymore_binary_path": "/usr/local/bin/waymore",
+            "urlfinder_binary_path": "/usr/local/bin/urlfinder",
         },
         "ui": {
             "theme": "light",

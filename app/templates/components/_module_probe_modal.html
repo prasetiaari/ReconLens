@@ -189,7 +189,13 @@
         
       {% endif %}
 
-      window.open(url, '_blank');
+      if (window.parent && typeof window.parent.openCliRunnerSidebar === 'function') {
+        window.parent.openCliRunnerSidebar(url);
+      } else if (typeof window.openCliRunnerSidebar === 'function') {
+        window.openCliRunnerSidebar(url);
+      } else {
+        window.open(url, '_blank');
+      }
       close();
     });
 

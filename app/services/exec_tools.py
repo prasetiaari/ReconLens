@@ -12,21 +12,37 @@ from app.core.pathutils import systemish_path
 
 def _to_cfg(settings: Optional[Union[Dict[str, Any], Any]]) -> Dict[str, Any]:
     """
-    Normalize settings into a plain dict.
+    Normalize settings into a plain dict and merge with dynamic user settings.
     Accepts:
       - dict
       - Pydantic Settings (v2 .model_dump(), v1 .dict())
       - None -> {}
     """
     if settings is None:
-        return {}
-    if isinstance(settings, dict):
-        return settings
-    if hasattr(settings, "model_dump") and callable(settings.model_dump):
-        return settings.model_dump()
-    if hasattr(settings, "dict") and callable(settings.dict):
-        return settings.dict()
-    return {}
+        out = {}
+    elif isinstance(settings, dict):
+        out = dict(settings)
+    elif hasattr(settings, "model_dump") and callable(settings.model_dump):
+        out = settings.model_dump()
+    elif hasattr(settings, "dict") and callable(settings.dict):
+        out = settings.dict()
+    else:
+        out = {}
+
+    try:
+        from app.core.config_store import load_settings
+        user = load_settings()
+        for k, v in user.items():
+            if k not in out or not out[k]:
+                out[k] = v
+            elif isinstance(v, dict) and isinstance(out[k], dict):
+                for sk, sv in v.items():
+                    if sk not in out[k] or not out[k][sk]:
+                        out[k][sk] = sv
+    except Exception:
+        pass
+
+    return out
 
 # ==========================================================
 # Python executable resolver
@@ -87,9 +103,16 @@ def resolve_external_binary(tool: str, settings: Optional[dict]) -> str:
     cfg = _to_cfg(settings)
     name = tool.lower()
 
-    # 1. From settings.tools.<tool>.binary_path
+    # 1. From settings.tools.<tool>.binary_path or settings.tools.<tool>_binary_path
     try:
         cfg_path = (cfg.get("tools", {}).get(name, {}).get("binary_path"))
+        if cfg_path and os.path.isfile(cfg_path) and os.access(cfg_path, os.X_OK):
+            return cfg_path
+    except Exception:
+        pass
+
+    try:
+        cfg_path = (cfg.get("tools", {}).get(f"{name}_binary_path"))
         if cfg_path and os.path.isfile(cfg_path) and os.access(cfg_path, os.X_OK):
             return cfg_path
     except Exception:
@@ -142,7 +165,59 @@ def build_tool_cmd(
 
     if tool == "waymore":
         exe = resolve_external_binary("waymore", cfg)
-        return [exe, "-i", scope, "-mode", "U", "-oU", str(out_dir / "urls.txt"), "--verbose"]
+        
+        # Build custom config with API keys from settings
+        urlscan_api = cfg.get("tools", {}).get("urlscan_api", "").strip()
+        virustotal_api = cfg.get("tools", {}).get("virustotal_api", "").strip()
+        
+        # Try to read base waymore config
+        base_config_path = Path.home() / ".config" / "waymore" / "config.yml"
+        if base_config_path.exists():
+            config_content = base_config_path.read_text(encoding="utf-8", errors="ignore")
+        else:
+            # Fallback template
+            config_content = (
+                "FILTER_CODE: 404,301,302\n"
+                "FILTER_MIME: text/css,image/jpeg,image/jpg,image/png,image/svg+xml,image/gif,image/tiff,image/webp,image/bmp,image/vnd,image/x-icon,image/vnd.microsoft.icon,font/ttf,font/woff,font/woff2,font/x-woff2,font/x-woff,font/otf,audio/mpeg,audio/wav,audio/webm,audio/aac,audio/ogg,audio/wav,audio/webm,video/mp4,video/mpeg,video/webm,video/ogg,video/mp2t,video/webm,video/x-msvideo,video/x-flv,application/font-woff,application/font-woff2,application/x-font-woff,application/x-font-woff2,application/vnd.ms-fontobject,application/font-sfnt,application/vnd.android.package-archive,binary/octet-stream,application/octet-stream,application/pdf,application/x-font-ttf,application/x-font-otf,video/webm,video/3gpp,application/font-ttf,audio/mp3,audio/x-wav,image/pjpeg,audio/basic,application/font-otf,application/x-ms-application,application/x-msdownload,video/x-ms-wmv,image/x-png,video/quicktime,image/x-ms-bmp,font/opentype,application/x-font-opentype,application/x-woff,audio/aiff\n"
+                "FILTER_URL: .css,.jpg,.jpeg,.png,.svg,.img,.gif,.mp4,.flv,.ogv,.webm,.webp,.mov,.mp3,.m4a,.m4p,.scss,.tif,.tiff,.ttf,.otf,.woff,.woff2,.bmp,.ico,.eot,.htc,.rtf,.swf,.image,/image,/img,/css,/wp-json,/wp-content,/wp-includes,/theme,/audio,/captcha,/font,node_modules,/jquery,/bootstrap\n"
+                "FILTER_KEYWORDS: admin,login,logon,signin,signup,register,registration,dash,portal,ftp,panel,.js,api,robots.txt,graph,gql,config,backup,debug,db,database,git,cgi-bin,swagger,zip,.rar,tar.gz,internal,jira,jenkins,confluence,atlassian,okta,corp,upload,delete,email,sql,create,edit,test,temp,cache,wsdl,log,payment,setting,mail,file,redirect,chat,billing,doc,trace,ftp,gateway,import,proxy,dev,stage,stg,uat,sonar.ci.,.cp.\n"
+                "URLSCAN_API_KEY:\n"
+                "VIRUSTOTAL_API_KEY:\n"
+                "CONTINUE_RESPONSES_IF_PIPED: True\n"
+                "WEBHOOK_DISCORD: YOUR_WEBHOOK\n"
+                "DEFAULT_OUTPUT_DIR:\n"
+            )
+
+        # Replace or add keys
+        new_lines = []
+        has_urlscan = False
+        has_virustotal = False
+        for line in config_content.splitlines():
+            if line.startswith("URLSCAN_API_KEY:"):
+                new_lines.append(f"URLSCAN_API_KEY: {urlscan_api}")
+                has_urlscan = True
+            elif line.startswith("VIRUSTOTAL_API_KEY:"):
+                new_lines.append(f"VIRUSTOTAL_API_KEY: {virustotal_api}")
+                has_virustotal = True
+            else:
+                new_lines.append(line)
+        
+        if not has_urlscan:
+            new_lines.append(f"URLSCAN_API_KEY: {urlscan_api}")
+        if not has_virustotal:
+            new_lines.append(f"VIRUSTOTAL_API_KEY: {virustotal_api}")
+
+        # Write to outputs/<scope>/raw/waymore_config.yml
+        raw_dir = out_dir / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        custom_config_path = raw_dir / "waymore_config.yml"
+        custom_config_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+        return [exe, "-i", scope, "-mode", "U", "-oU", str(out_dir / "urls.txt"), "-c", str(custom_config_path), "--verbose"]
+
+    if tool == "urlfinder":
+        exe = resolve_external_binary("urlfinder", cfg)
+        return [exe, "-d", scope, "-all", "-o", str(out_dir / "urls.txt")]
 
     # --- internal build module ---
     if tool == "build":

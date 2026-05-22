@@ -31,8 +31,7 @@ class Settings(BaseModel):
     MODULES: dict = MODULE_FILEMAP
     GAU_BIN: str = "/usr/local/bin/gau"
     WAYMORE_BIN: str = "/usr/local/bin/waymore"
-
-    
+    URLFINDER_BIN: str = "/usr/local/bin/urlfinder"
 
     class Config:
         arbitrary_types_allowed = True

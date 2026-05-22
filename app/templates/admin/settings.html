@@ -1,5 +1,5 @@
 {# app/templates/settings.html #}
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
 {% block title %}Settings · ReconLens{% endblock %}
 
 {% block content %}
@@ -139,9 +139,9 @@
       hx-target="#tools-status"
       hx-swap="innerHTML">
 
-      <!-- Waymore / GAU -->
+      <!-- Waymore / GAU / URLFinder -->
       <div>
-        <div class="text-sm font-medium mb-2">Waymore / GAU</div>
+        <div class="text-sm font-medium mb-2">Waymore / GAU / URLFinder</div>
         <div class="grid sm:grid-cols-2 gap-3">
           <div>
             <label class="text-xs text-slate-500">Urlscan.io API key</label>
@@ -164,6 +164,21 @@
             <input type="number" min="0" name="urls_limit" class="input w-full"
                    value="{{ tools.get('urls_limit', 0) }}">
             <p class="text-xs text-slate-500 mt-1">0 = unlimited (use with care).</p>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">GAU Binary Path</label>
+            <input name="gau_binary_path" class="input w-full" placeholder="/usr/local/bin/gau"
+                   value="{{ tools.get('gau_binary_path','') }}">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Waymore Binary Path</label>
+            <input name="waymore_binary_path" class="input w-full" placeholder="/usr/local/bin/waymore"
+                   value="{{ tools.get('waymore_binary_path','') }}">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="text-xs text-slate-500">URLFinder Binary Path</label>
+            <input name="urlfinder_binary_path" class="input w-full" placeholder="/usr/local/bin/urlfinder"
+                   value="{{ tools.get('urlfinder_binary_path','') }}">
           </div>
         </div>
       </div>
@@ -330,7 +345,7 @@
   // Friendly success blink for htmx responses
   document.body.addEventListener('htmx:afterRequest', (e)=>{
     const tgt = e?.detail?.target;
-    if (!tgt) return;
+    if (!tgt || !tgt.id || !tgt.id.endsWith('-status')) return;
     const status = e?.detail?.xhr?.status || 0;
     if (status >= 200 && status < 300) {
       tgt.innerHTML = '<span class="text-emerald-600">Saved.</span>';

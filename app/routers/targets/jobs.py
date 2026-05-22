@@ -54,12 +54,99 @@ JOBS[job_id] = {
 # Utilities
 # ======================================================================
 
+class HistoryQueue(asyncio.Queue):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.history = []
+
+    async def put(self, item):
+        self.history.append(item)
+        await super().put(item)
+
+
+JOBS_DIR = OUTPUTS_DIR / "__cache__" / "jobs"
+
+def _save_job_to_disk(job_id: str, info: dict):
+    try:
+        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        serializable = {
+            "scope": info.get("scope"),
+            "tool": info.get("tool"),
+            "module": info.get("module"),
+            "host": info.get("host"),
+            "wordlists": info.get("wordlists"),
+            "done": info.get("done", False),
+            "exit_code": info.get("exit_code"),
+            "log_path": info.get("log_path"),
+            "urls_path": info.get("urls_path"),
+            "raw_path": info.get("raw_path"),
+            "pid": info.get("pid"),
+        }
+        with open(JOBS_DIR / f"{job_id}.json", "w", encoding="utf-8") as f:
+            json.dump(serializable, f, indent=2)
+    except Exception as e:
+        print(f"[WARN] Failed to save job metadata to disk: {e}", flush=True)
+
+def _load_job_from_disk(job_id: str) -> dict | None:
+    path = JOBS_DIR / f"{job_id}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        pid = data.get("pid")
+        done = data.get("done", False)
+        if not done and pid:
+            is_running = False
+            try:
+                os.kill(pid, 0)
+                is_running = True
+            except OSError:
+                pass
+            if not is_running:
+                data["done"] = True
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+
+        q = HistoryQueue()
+        log_path = data.get("log_path")
+        if log_path and os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                for line in lf:
+                    q.history.append(line.rstrip("\n"))
+        
+        if data.get("done"):
+            q.history.append("[[DONE]]")
+
+        info = {
+            "queue": q,
+            "proc": None,
+            "done": data.get("done", False),
+            "exit_code": data.get("exit_code"),
+            "scope": data.get("scope"),
+            "tool": data.get("tool"),
+            "module": data.get("module"),
+            "host": data.get("host"),
+            "wordlists": data.get("wordlists"),
+            "log_path": log_path,
+            "urls_path": data.get("urls_path"),
+            "raw_path": data.get("raw_path"),
+            "pid": pid,
+        }
+        JOBS[job_id] = info
+        return info
+    except Exception as e:
+        print(f"[WARN] Failed to load job metadata from disk: {e}", flush=True)
+        return None
+
+
 def _new_job(scope: str, tool: str, module: str | None = None,
              host: str | None = None, wordlists: str | None = None) -> str:
-    """Create a new job entry and initialize its async queue."""
+    """Create a new job entry and initialize its async queue with history recording."""
     jid = os.urandom(12).hex()
-    JOBS[jid] = {
-        "queue": asyncio.Queue(),
+    info = {
+        "queue": HistoryQueue(),
         "proc": None,
         "done": False,
         "exit_code": None,
@@ -68,7 +155,10 @@ def _new_job(scope: str, tool: str, module: str | None = None,
         "module": module,
         "host": host,
         "wordlists": wordlists,
+        "pid": None,
     }
+    JOBS[jid] = info
+    _save_job_to_disk(jid, info)
     return jid
 
 
@@ -204,7 +294,6 @@ async def _run_job(
         await q.put(f"[info] PYTHONPATH={env['PYTHONPATH']}\n")
         await q.put(f"[info] raw → {raw_path}\n")
 
-        # Jalankan proses dari project_root (bukan dari repo_root/ReconLens)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -213,6 +302,8 @@ async def _run_job(
             env=env,
         )
         job["proc"] = proc
+        job["pid"] = proc.pid
+        _save_job_to_disk(job_id, job)
         await q.put("event: status\ndata: running\n\n")
 
         # Stream stdout (akan memunculkan "Classifying: ...", tabel ascii, dll dari CLI)
@@ -246,6 +337,7 @@ async def _run_job(
 
         rc = await proc.wait()
         job["exit_code"] = rc
+        _save_job_to_disk(job_id, job)
         await q.put(f"\n[exit] code={rc}\n")
 
         # Merge & summaries (sama seperti dulu)
@@ -263,9 +355,11 @@ async def _run_job(
     except Exception as e:
         await q.put(f"[error] {e}\n")
         job["exit_code"] = -1
+        _save_job_to_disk(job_id, job)
         await q.put("event: status\ndata: done\n\n")
     finally:
         job["done"] = True
+        _save_job_to_disk(job_id, job)
         await q.put("[[DONE]]")
 
 
@@ -278,7 +372,7 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
                         dirsearch_outfile: Optional[Path] = None,
                         ):
     if outputs_root==None: outputs_root = out_dir.parent
-    if tool in ("gau", "waymore"):
+    if tool in ("gau", "waymore", "urlfinder"):
         target = out_dir / "urls.txt"
         before = read_text_lines(target)
         merge_urls(target, tmp_urls)
@@ -417,6 +511,8 @@ async def collect_cancel(scope: str, tool: str, job: str):
     """Cancel a running job by sending SIGINT."""
     info = JOBS.get(job)
     if not info:
+        info = _load_job_from_disk(job)
+    if not info:
         return JSONResponse({"ok": False, "error": "job not found"})
 
     proc = info.get("proc")
@@ -428,28 +524,89 @@ async def collect_cancel(scope: str, tool: str, job: str):
                 proc.terminate()
             except Exception:
                 pass
+    else:
+        pid = info.get("pid")
+        if pid:
+            try:
+                os.kill(pid, signal.SIGINT)
+            except Exception:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except Exception:
+                    pass
     return JSONResponse({"ok": True})
 
 
 @router.get("/{scope}/collect/{tool}/stream")
 async def collect_stream(scope: str, tool: str, job: str):
-    """Stream job output via Server-Sent Events."""
+    """Stream job output via Server-Sent Events with history re-attachment."""
     info = JOBS.get(job)
+    if not info:
+        info = _load_job_from_disk(job)
     if not info:
         raise HTTPException(404, "job not found")
 
     async def eventgen():
-        q: asyncio.Queue[str] = info["queue"]
+        q = info["queue"]
+        history = getattr(q, "history", [])
+        index = 0
         while True:
-            item = await q.get()
-            if item == "[[DONE]]":
-                yield "data: [[DONE]]\n\n"
-                break
-            if item.startswith("event:"):
-                yield item
+            if index < len(history):
+                item = history[index]
+                index += 1
+                if item == "[[DONE]]":
+                    yield "data: [[DONE]]\n\n"
+                    break
+                if item.startswith("event:"):
+                    yield item
+                else:
+                    for line in item.splitlines():
+                        yield f"data: {line}\n"
+                    yield "\n"
             else:
-                for line in item.splitlines():
-                    yield f"data: {line}\n"
-                yield "\n"
+                # If job is fully complete and we read all history
+                if info.get("done") and index >= len(history):
+                    yield "data: [[DONE]]\n\n"
+                    break
+                await asyncio.sleep(0.1)
 
     return StreamingResponse(eventgen(), media_type="text/event-stream")
+
+
+@router.get("/{scope}/active-jobs")
+async def get_active_jobs(scope: str):
+    """Get active running jobs for the scope."""
+    # Recover any lost active jobs from disk
+    if JOBS_DIR.exists():
+        try:
+            for p in JOBS_DIR.glob("*.json"):
+                jid = p.stem
+                if jid not in JOBS:
+                    _load_job_from_disk(jid)
+        except Exception as e:
+            print(f"[WARN] Error restoring active jobs from disk cache: {e}", flush=True)
+
+    active = []
+    for jid, info in JOBS.items():
+        if info.get("scope") == scope and not info.get("done"):
+            # Check if process is still running
+            pid = info.get("pid")
+            is_running = False
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    is_running = True
+                except OSError:
+                    pass
+            else:
+                proc = info.get("proc")
+                is_running = proc is None or proc.returncode is None
+            
+            if is_running:
+                active.append({
+                    "job_id": jid,
+                    "tool": info.get("tool"),
+                    "module": info.get("module"),
+                    "host": info.get("host"),
+                })
+    return JSONResponse(active)

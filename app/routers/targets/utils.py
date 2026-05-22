@@ -52,16 +52,16 @@ def read_text_lines(p: Path) -> int:
 # ---------------------------------------------------------------------------
 
 def merge_urls(target: Path, incoming: Path):
-    """Merge two URL lists (unique, case-sensitive)."""
+    """Merge two URL lists (unique, case-sensitive, valid URLs only)."""
     seen = set()
     if target.exists():
         for ln in target.read_text(encoding="utf-8", errors="ignore").splitlines():
-            if ln:
+            if ln and "://" in ln:
                 seen.add(ln.strip())
 
     for ln in incoming.read_text(encoding="utf-8", errors="ignore").splitlines():
         s = ln.strip()
-        if s and s not in seen:
+        if s and "://" in s and s not in seen:
             seen.add(s)
 
     tmp = target.with_suffix(".tmp")
@@ -265,6 +265,32 @@ def list_category_files(scope: str, outputs_root: Path) -> List[str]:
     return ordered
 
 OUTPUTS_DIR = Path("outputs")
+
+def get_tool_counts(scope: str) -> dict[str, int]:
+    """Calculate the number of unique URLs found by each tool in outputs/<scope>/raw/."""
+    out_dir = OUTPUTS_DIR / scope
+    raw_dir = out_dir / "raw"
+    res = {"gau": 0, "waymore": 0, "urlfinder": 0}
+    if not raw_dir.exists():
+        return res
+
+    tool_urls = {"gau": set(), "waymore": set(), "urlfinder": set()}
+    try:
+        for p in raw_dir.glob("*.urls"):
+            name = p.name.split("-", 1)[0].lower()
+            if name in tool_urls:
+                with p.open("r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        u = line.strip()
+                        if u and "://" in u:
+                            tool_urls[name].add(u)
+    except Exception:
+        pass
+
+    for name in res:
+        res[name] = len(tool_urls[name])
+    return res
+
 def gather_stats(scope: str) -> dict:
     out_dir = OUTPUTS_DIR / scope
     if not out_dir.exists():
@@ -277,6 +303,7 @@ def gather_stats(scope: str) -> dict:
                 "ctypes": {},
                 "last_scans": {},
             },
+            "tool_counts": {"gau": 0, "waymore": 0, "urlfinder": 0},
         }
 
     # 1) hitung urls.txt
@@ -339,6 +366,7 @@ def gather_stats(scope: str) -> dict:
         "stats": stats_list,
         "urls_count": urls_count,
         "dash": dash,
+        "tool_counts": get_tool_counts(scope),
     }
 
 def count_lines(p: Path) -> int:

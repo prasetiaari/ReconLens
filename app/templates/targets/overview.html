@@ -47,9 +47,11 @@
 
     <div class="mt-4 flex flex-wrap gap-3">
       <a class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm"
-         href="/targets/{{ scope }}/collect/gau" target="_blank" rel="noopener">Collect with GAU</a>
+         href="/targets/{{ scope }}/collect/gau" target="_blank" rel="noopener">Collect with GAU ({{ tool_counts.get('gau', 0) if tool_counts is defined else 0 }})</a>
       <a class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
-         href="/targets/{{ scope }}/collect/waymore" target="_blank" rel="noopener">Collect with Waymore</a>
+         href="/targets/{{ scope }}/collect/waymore" target="_blank" rel="noopener">Collect with Waymore ({{ tool_counts.get('waymore', 0) if tool_counts is defined else 0 }})</a>
+      <a class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm"
+         href="/targets/{{ scope }}/collect/urlfinder" target="_blank" rel="noopener">Collect with URLFinder ({{ tool_counts.get('urlfinder', 0) if tool_counts is defined else 0 }})</a>
     </div>
 
     <div class="mt-3 text-xs text-slate-500">
@@ -299,9 +301,11 @@
       </p>
       <div class="flex flex-wrap gap-2">
         <a href="/targets/{{ scope }}/collect/gau" target="_blank" rel="noopener"
-           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">GAU</a>
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">GAU ({{ tool_counts.get('gau', 0) if tool_counts is defined else 0 }})</a>
         <a href="/targets/{{ scope }}/collect/waymore" target="_blank" rel="noopener"
-           class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">Waymore</a>
+           class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">Waymore ({{ tool_counts.get('waymore', 0) if tool_counts is defined else 0 }})</a>
+        <a href="/targets/{{ scope }}/collect/urlfinder" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">URLFinder ({{ tool_counts.get('urlfinder', 0) if tool_counts is defined else 0 }})</a>
       </div>
       <p class="text-xs text-slate-500">
         Tip: This process will open in a new tab, and you can continue using this application while waiting for it to finish.
@@ -440,14 +444,14 @@
     });
   });
 
-  // Placeholder action: open new tab sesuai pilihan (endpoint belum diimplement)
+  // Action: Open in sliding sidebar instead of new tab!
   runBtn?.addEventListener('click', ()=>{
     const scopeChoice = document.querySelector('input[name="probe_scope"]:checked')?.value || 'all';
     if (scopeChoice === 'module') {
       const m = modSel?.value || 'other';
-      window.open(`/targets/${encodeURIComponent(scope)}/probe/module/${encodeURIComponent(m)}`, '_blank');
+      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_module?module=${encodeURIComponent(m)}`);
     } else {
-      window.open(`/targets/${encodeURIComponent(scope)}/probe/all`, '_blank');
+      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_subdomains`);
     }
   });
 })();

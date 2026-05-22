@@ -15,43 +15,67 @@
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   {% block head_extra %}{% endblock %}
+  <style>
+    /* Styling if running inside an iframe */
+    body.in-iframe header {
+      display: none !important;
+    }
+    body.in-iframe main {
+      padding: 1rem !important;
+      max-width: 100% !important;
+    }
+    body.in-iframe .max-w-5xl {
+      max-width: 100% !important;
+    }
+  </style>
+  <script>
+    if (window.self !== window.top) {
+      document.documentElement.classList.add('in-iframe');
+      window.addEventListener('DOMContentLoaded', () => {
+        document.body.classList.add('in-iframe');
+      });
+    }
+  </script>
 </head>
 <body class="bg-slate-50 text-slate-800">
-  {% block toolbar %}{% endblock %}
-  {% block modals %}{% endblock %}
-  <header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-10">
-  <div class="max-w-6xl mx-auto flex items-center justify-between">
-    <div class="flex items-center space-x-3">
-      <!-- Logo -->
-      <a href="/"><img src="/static/img/reconlens-logo.png" alt="ReconLens" class="h-10"></a>
+  <div id="appWrapper" hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-push-url="true">
+    {% block toolbar %}{% endblock %}
+    {% block modals %}{% endblock %}
+    <header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <!-- Logo -->
+        <a href="/"><img src="/static/img/reconlens-logo.png" alt="ReconLens" class="h-10"></a>
 
-      <!-- Breadcrumbs -->
-      <nav class="text-base text-slate-600 font-medium">
-          {% if scope %}
-            <a href="/" class="hover:underline">ReconLens</a>
-            <span class="mx-1">/</span>
-            <a href="/targets/{{ scope }}" class="hover:underline">{{ scope }}</a>
-            {% if module_name %}
+        <!-- Breadcrumbs -->
+        <nav class="text-base text-slate-600 font-medium">
+            {% if scope %}
+              <a href="/" class="hover:underline">ReconLens</a>
               <span class="mx-1">/</span>
-              <span class="font-semibold">{{ module_name|lower }}</span>
+              <a href="/targets/{{ scope }}" class="hover:underline">{{ scope }}</a>
+              {% if module_name %}
+                <span class="mx-1">/</span>
+                <span class="font-semibold">{{ module_name|lower }}</span>
+              {% endif %}
+            {% else %}
+              <span class="font-semibold">ReconLens</span>
             {% endif %}
-          {% else %}
-            <span class="font-semibold">ReconLens</span>
-          {% endif %}
-        </nav>
-    </div>
+          </nav>
+      </div>
 
-    <div class="text-sm text-slate-500 flex items-center gap-3">
-      <!--<a href="/settings" class="hover:underline">Settings</a> #fitur setting nanti dulu--> 
-      <a href="/about" class="hover:underline">About</a>
+      <div class="text-sm text-slate-500 flex items-center gap-3">
+        <a href="/settings" class="hover:underline">Settings</a>
+        <span class="text-slate-300">|</span>
+        <a href="/about" class="hover:underline">About</a>
+      </div>
     </div>
+  </header>
+
+    <main class="max-w-6xl mx-auto p-6">
+      {% block content %}{% endblock %}
+      
+    </main>
   </div>
-</header>
-
-  <main class="max-w-6xl mx-auto p-6">
-    {% block content %}{% endblock %}
-    
-  </main>
   
 <style>
   .text-monospace{
@@ -75,6 +99,267 @@
   .th-last { width:160px;  white-space:nowrap; }
   .th-act  { width:80px;   white-space:nowrap; }
 </style>
+{% if scope %}
+<!-- CLI Runner Sliding Sidebar (Right Drawer) -->
+<div id="cliSidebar" class="fixed inset-y-0 right-0 z-50 w-full max-w-4xl bg-slate-900 shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out border-l border-slate-700 flex flex-col hidden" aria-hidden="true">
+  <!-- Sidebar Header -->
+  <div class="px-5 py-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between text-slate-200">
+    <div class="flex items-center gap-3">
+      <div id="cliHeaderDot" class="w-3 h-3 rounded-full bg-slate-500"></div>
+      <span class="text-sm font-semibold tracking-wide uppercase text-slate-400">ReconLens CLI Console</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Open in new tab button -->
+      <button id="cliSidebarNewTab" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Open in new tab">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+      </button>
+      <!-- Minimize button -->
+      <button id="cliSidebarMinimize" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Minimize to background tray">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <!-- Close button -->
+      <button id="cliSidebarClose" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" aria-label="Close Sidebar">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Sidebar Body (Iframe Container) -->
+  <div class="relative flex-1 bg-slate-950 overflow-hidden">
+    <!-- Spinner Loader -->
+    <div id="cliSidebarLoader" class="absolute inset-0 flex items-center justify-center bg-slate-950/80 z-10">
+      <div class="flex flex-col items-center gap-3">
+        <svg class="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+        </svg>
+        <span class="text-xs text-slate-400 font-mono">Initializing terminal environment...</span>
+      </div>
+    </div>
+    <!-- The actual Iframe -->
+    <iframe id="cliSidebarIframe" class="w-full h-full border-0 bg-transparent" src=""></iframe>
+  </div>
+</div>
+
+<!-- Backdrop -->
+<div id="cliSidebarBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 hidden transition-opacity duration-300 opacity-0"></div>
+
+<!-- Floating Mini CLI Widget -->
+<div id="cliFloatingWidget" class="fixed bottom-6 right-6 z-40 hidden flex items-center gap-3 bg-slate-900 border border-slate-700 shadow-2xl rounded-full px-4 py-2.5 cursor-pointer text-slate-100 hover:bg-slate-800 hover:border-slate-600 transition duration-200">
+  <div class="relative flex h-3.5 w-3.5">
+    <span id="cliFloatingPulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+    <span id="cliFloatingDot" class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+  </div>
+  <span id="cliFloatingLabel" class="text-xs font-mono font-medium tracking-wide">CLI initialized</span>
+</div>
+
+<script>
+(function() {
+  const scope = {{ scope|tojson }};
+  const sidebar = document.getElementById('cliSidebar');
+  const backdrop = document.getElementById('cliSidebarBackdrop');
+  const iframe = document.getElementById('cliSidebarIframe');
+  const loader = document.getElementById('cliSidebarLoader');
+  const closeBtn = document.getElementById('cliSidebarClose');
+  const minimizeBtn = document.getElementById('cliSidebarMinimize');
+  const newTabBtn = document.getElementById('cliSidebarNewTab');
+  
+  const floatingWidget = document.getElementById('cliFloatingWidget');
+  const floatingLabel = document.getElementById('cliFloatingLabel');
+  const floatingPulse = document.getElementById('cliFloatingPulse');
+  const floatingDot = document.getElementById('cliFloatingDot');
+  const headerDot = document.getElementById('cliHeaderDot');
+
+  let activeTool = 'CLI';
+  let elapsedSeconds = 0;
+  let timerInterval = null;
+  let isJobRunning = false;
+
+  function updateStatusText() {
+    const text = isJobRunning 
+      ? `${activeTool} running: ${elapsedSeconds}s` 
+      : `${activeTool} finished`;
+    floatingLabel.textContent = text;
+  }
+
+  function startTimer(toolName) {
+    activeTool = toolName;
+    elapsedSeconds = 0;
+    isJobRunning = true;
+    updateStatusText();
+
+    floatingPulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+    floatingDot.className = "relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500";
+    headerDot.className = "w-3 h-3 rounded-full bg-emerald-500 animate-pulse";
+
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+      elapsedSeconds++;
+      updateStatusText();
+    }, 1000);
+  }
+
+  function stopTimer(status) {
+    isJobRunning = false;
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = null;
+
+    if (status === 'done') {
+      floatingPulse.className = "hidden";
+      floatingDot.className = "relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500";
+      headerDot.className = "w-3 h-3 rounded-full bg-blue-500";
+      floatingLabel.textContent = `${activeTool} completed successfully!`;
+    } else {
+      floatingPulse.className = "hidden";
+      floatingDot.className = "relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500";
+      headerDot.className = "w-3 h-3 rounded-full bg-rose-500";
+      floatingLabel.textContent = `${activeTool} stopped (${status})`;
+    }
+  }
+
+  window.onCliJobStarted = function(toolName) {
+    startTimer(toolName);
+    floatingWidget.classList.remove('hidden');
+  };
+
+  window.onCliJobFinished = function(status) {
+    stopTimer(status);
+  };
+
+  function openSidebar(url) {
+    document.querySelectorAll('[id*="Modal"]').forEach(el => {
+      el.classList.add('hidden');
+      el.setAttribute('aria-hidden', 'true');
+    });
+
+    sidebar.classList.remove('hidden');
+    backdrop.classList.remove('hidden');
+    
+    if (iframe.src !== url) {
+      loader.classList.remove('hidden');
+      iframe.src = url;
+    }
+    
+    floatingWidget.classList.add('hidden');
+
+    sidebar.offsetWidth;
+    sidebar.classList.remove('translate-x-full');
+    sidebar.classList.add('translate-x-0');
+    sidebar.setAttribute('aria-hidden', 'false');
+    
+    backdrop.offsetWidth;
+    backdrop.classList.remove('opacity-0');
+    backdrop.classList.add('opacity-100');
+  }
+
+  function closeSidebar() {
+    if (isJobRunning) {
+      minimizeSidebar();
+      return;
+    }
+    sidebar.classList.remove('translate-x-0');
+    sidebar.classList.add('translate-x-full');
+    sidebar.setAttribute('aria-hidden', 'true');
+    
+    backdrop.classList.remove('opacity-100');
+    backdrop.classList.add('opacity-0');
+
+    setTimeout(() => {
+      sidebar.classList.add('hidden');
+      backdrop.classList.add('hidden');
+      iframe.src = '';
+      floatingWidget.classList.add('hidden');
+      stopTimer('closed');
+    }, 300);
+  }
+
+  function minimizeSidebar() {
+    sidebar.classList.remove('translate-x-0');
+    sidebar.classList.add('translate-x-full');
+    sidebar.setAttribute('aria-hidden', 'true');
+    
+    backdrop.classList.remove('opacity-100');
+    backdrop.classList.add('opacity-0');
+
+    setTimeout(() => {
+      sidebar.classList.add('hidden');
+      backdrop.classList.add('hidden');
+      floatingWidget.classList.remove('hidden');
+    }, 300);
+  }
+
+  iframe.addEventListener('load', () => {
+    loader.classList.add('hidden');
+  });
+
+  backdrop.addEventListener('click', minimizeSidebar);
+  closeBtn.addEventListener('click', closeSidebar);
+  minimizeBtn.addEventListener('click', minimizeSidebar);
+  
+  floatingWidget.addEventListener('click', () => {
+    if (iframe.src) {
+      openSidebar(iframe.src);
+    }
+  });
+
+  newTabBtn.addEventListener('click', () => {
+    if (iframe.src) {
+      window.open(iframe.src, '_blank');
+      closeSidebar();
+    }
+  });
+
+  window.openCliRunnerSidebar = openSidebar;
+
+  document.addEventListener('click', function(e) {
+    const link = e.target.closest('a[href*="/collect/"]');
+    if (link) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      openSidebar(link.href);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !sidebar.classList.contains('translate-x-full')) {
+      minimizeSidebar();
+    }
+  });
+
+  // Query active jobs on page load to re-attach automatically!
+  async function checkActiveJobs() {
+    try {
+      const res = await fetch(`/targets/${encodeURIComponent(scope)}/active-jobs`);
+      if (res.ok) {
+        const activeJobs = await res.json();
+        if (activeJobs && activeJobs.length > 0) {
+          const job = activeJobs[0];
+          let toolUrl = `/targets/${encodeURIComponent(scope)}/collect/${encodeURIComponent(job.tool)}?job=${encodeURIComponent(job.job_id)}`;
+          if (job.module) {
+            toolUrl += `&module=${encodeURIComponent(job.module)}`;
+          }
+          if (job.host) {
+            toolUrl += `&host=${encodeURIComponent(job.host)}`;
+          }
+          
+          iframe.src = toolUrl;
+          floatingWidget.classList.remove('hidden');
+          startTimer(job.tool);
+        }
+      }
+    } catch(e) {}
+  }
+  
+  checkActiveJobs();
+})();
+</script>
+{% endif %}
 </body>
 
 </html>

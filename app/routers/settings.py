@@ -62,7 +62,7 @@ def _ensure_nested(d: Dict[str, Any], path: List[str]) -> Dict[str, Any]:
 async def settings_page(request: Request):
     T = get_templates(request)
     settings = load_settings() or {}
-    return T.TemplateResponse("settings.html", {"request": request, "settings": settings})
+    return T.TemplateResponse("admin/settings.html", {"request": request, "settings": settings})
 
 
 # -------------------------
@@ -120,6 +120,9 @@ async def settings_tooling(request: Request):
         "prefer_https": _as_bool(form.get("prefer_https"), True),
         "if_head_then_get": _as_bool(form.get("if_head_then_get"), True),
         "delay_ms": _as_int(form.get("delay_ms"), 0),
+        "gau_binary_path": (form.get("gau_binary_path") or "").strip(),
+        "waymore_binary_path": (form.get("waymore_binary_path") or "").strip(),
+        "urlfinder_binary_path": (form.get("urlfinder_binary_path") or "").strip(),
     }
 
     settings = load_settings() or {}

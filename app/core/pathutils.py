@@ -17,7 +17,15 @@ def without_venv_bin(path_list: list[str]) -> list[str]:
 def systemish_path() -> str:
     """Return a cleaned PATH, prioritizing system-wide binaries over venv/bin."""
     base = without_venv_bin(split_path(os.environ.get("PATH", "")))
-    prefer = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    prefer = [
+        os.path.expanduser("~/go/bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ]
     ordered = [p for p in prefer if os.path.isdir(p)] + base
     seen, uniq = set(), []
     for p in ordered:
