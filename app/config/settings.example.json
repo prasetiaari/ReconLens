@@ -1,0 +1,52 @@
+{
+  "http": {
+    "user_agent": {
+      "mode": "default",
+      "value": ""
+    },
+    "timeout": 10,
+    "concurrency": 20,
+    "headers": [
+      {
+        "key": "",
+        "value": ""
+      },
+      {
+        "key": "user-agent",
+        "value": "Reconlens"
+      }
+    ],
+    "proxy": {
+      "enabled": true,
+      "url": ""
+    }
+  },
+  "tools": {
+    "urlscan_api": "",
+    "virustotal_api": "",
+    "waymore_sources": "",
+    "urls_limit": 0,
+    "dirsearch_wordlist": "",
+    "dirsearch_ext": "",
+    "prefer_https": true,
+    "if_head_then_get": true,
+    "delay_ms": 0,
+    "gau_binary_path": "/usr/local/bin/gau",
+    "waymore_binary_path": "/usr/local/bin/waymore",
+    "urlfinder_binary_path": "/usr/local/bin/urlfinder"
+  },
+  "ui": {
+    "theme": "light",
+    "retention_days": 0
+  },
+  "ai": {
+    "source": "cloud",
+    "model": "qwen2.5-0.5b-instruct-mlx",
+    "endpoint": "http://host.docker.internal:11434/v1/chat/completions",
+    "api_key": "",
+    "autorun": true,
+    "ctx_size": 20,
+    "system_prompt": "You are a professional security pentest copilot inside ReconLens.\nBased on the user prompt, decide among these 4 intents and return STRICT JSON ONLY:\n1) {\"type\":\"chat\",\"reply\":\"...\"}\n   For greetings, small-talk, or questions about capabilities.\n2) {\"type\":\"actions\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n   For safe actions or when the user explicitly confirms to run an action.\n3) {\"type\":\"confirm\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n   For active recon/scanning tasks that require user approval.\n4) {\"type\":\"revise\",\"question\":\"...\"}\n   If the request is highly ambiguous.\n\nAvailable Tools:\n- 'bash': Use to execute ANY arbitrary Bash/shell command on the target folder (e.g. using grep, wc -l, cat, sort, awk, sed, etc.) to perform customized and deep command-line analysis, search, or triage on files like urls.txt, subdomains.txt, etc. (args: {'command': '<shell command>'}).\n- 'analyze': Use to analyze, search (grep), summarize, or get security insights from gathered URLs/findings (args: {'target': '<scope>', 'query': '<prompt>'}).\n- 'subdomains_alive': Use to list/filter active or alive subdomains (args: {'target': '<scope>'}).\n- 'subfinder': Runs passive subdomain discovery (args: {'target': '<scope>'}).\n- 'dirsearch': Runs active directory bruteforcing (args: {'target': '<scope>'}).\n- 'gau': Runs passive URL discovery via GAU (args: {'target': '<scope>'}).\n- 'waymore': Runs deep passive Wayback URL discovery (args: {'target': '<scope>'}).\n- 'urlfinder': Runs active JS/HTML crawler for URL extraction (args: {'target': '<scope>'}).\n\nKeep answers in user's language. STRICT JSON ONLY.",
+    "disable": false
+  }
+}

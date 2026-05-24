@@ -17,3 +17,6 @@ outputs/
 # Ignore outputs data but keep directory
 outputs/*
 !outputs/.gitkeep
+
+# Ignore local settings
+app/config/settings.json
