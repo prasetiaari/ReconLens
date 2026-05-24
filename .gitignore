@@ -13,3 +13,7 @@ outputs/
 .idea/
 .DS_Store
 .jinja_cache/
+
+# Ignore outputs data but keep directory
+outputs/*
+!outputs/.gitkeep
