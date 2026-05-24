@@ -64,14 +64,14 @@ docker compose up -d --build
 
 Access the UI at: **http://localhost:8003**
 
-## AI Features Setup (Ollama)
-ReconLens supports analyzing targets and generating automated tasks using local AI models.
-1. Download and install [Ollama](https://ollama.com/) on your host machine.
-2. Run the default model in your terminal (this will download ~3GB-4GB of model weights):
-   ```bash
-   ollama run llama3.1:8b
-   ```
-3. ReconLens will automatically connect to `http://host.docker.internal:11434` or `http://localhost:11434` to utilize the AI.
+## Bring Your Own AI (BYOA)
+ReconLens supports AI-assisted recon analysis. Since AI models are large, ReconLens **does not** bundle or force you to download any specific AI.
+
+You can configure your preferred AI provider in the **Settings** menu inside ReconLens:
+- **Cloud AI (Recommended for speed):** Just paste your OpenAI API Key (or any OpenAI-compatible API) in the Settings.
+- **Local AI (For privacy):** If you already have [Ollama](https://ollama.com/) running locally (e.g., `llama3.1`), you can point ReconLens to your local endpoint (`http://host.docker.internal:11434`).
+
+If you don't want to use AI at all, you can completely **disable** the AI Copilot tab in Settings to keep the UI clean.
 
 ## Setup (Manual Python Environment)
 If you prefer not to use Docker, you can run it manually:
