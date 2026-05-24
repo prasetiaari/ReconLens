@@ -267,14 +267,20 @@ def list_category_files(scope: str, outputs_root: Path) -> List[str]:
 OUTPUTS_DIR = Path("outputs")
 
 def get_tool_counts(scope: str) -> dict[str, int]:
-    """Calculate the number of unique URLs found by each tool in outputs/<scope>/raw/."""
+    """Calculate the number of unique URLs/hosts found by each tool in outputs/<scope>/raw/."""
     out_dir = OUTPUTS_DIR / scope
     raw_dir = out_dir / "raw"
-    res = {"gau": 0, "waymore": 0, "urlfinder": 0}
+    res = {
+        "gau": 0, "waymore": 0, "urlfinder": 0,
+        "subfinder": 0, "amass": 0, "findomain": 0
+    }
     if not raw_dir.exists():
         return res
 
-    tool_urls = {"gau": set(), "waymore": set(), "urlfinder": set()}
+    tool_urls = {
+        "gau": set(), "waymore": set(), "urlfinder": set(),
+        "subfinder": set(), "amass": set(), "findomain": set()
+    }
     try:
         for p in raw_dir.glob("*.urls"):
             name = p.name.split("-", 1)[0].lower()
@@ -282,8 +288,11 @@ def get_tool_counts(scope: str) -> dict[str, int]:
                 with p.open("r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
                         u = line.strip()
-                        if u and "://" in u:
-                            tool_urls[name].add(u)
+                        if u:
+                            if name in ("subfinder", "amass", "findomain"):
+                                tool_urls[name].add(u)
+                            elif "://" in u:
+                                tool_urls[name].add(u)
     except Exception:
         pass
 

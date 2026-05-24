@@ -220,7 +220,7 @@ def _act_ping(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Dict[str,
             "ok": ok,
             "summary": {
                 "status": f"Hasil ping ke {host}:",
-                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output)}</pre>"
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs max-h-[300px] overflow-y-auto max-w-full overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output)}</pre>"
             }
         }
     except Exception as e:
@@ -275,7 +275,7 @@ def _act_execute_code(outputs_root: Path, scope: str, args: Dict[str, Any]) -> D
             "ok": True,
             "summary": {
                 "status": "Hasil eksekusi kode AI (Code Interpreter):",
-                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or 'Kode berhasil dijalankan tanpa output.')}</pre>"
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs max-h-[300px] overflow-y-auto w-fit max-w-full block whitespace-pre overflow-x-auto mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or 'Kode berhasil dijalankan tanpa output.')}</pre>"
             }
         }
     except Exception as e:
@@ -303,13 +303,6 @@ def _act_run_command(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Di
                 "error": f"❌ Security Guard: Perintah berbahaya '{db}' diblokir di Bash Sandbox demi keamanan harddisk Anda!"
             }
 
-    # Cegah Directory Traversal keluar dari folder target
-    if ".." in cmd:
-        return {
-            "ok": False,
-            "error": "❌ Security Guard: Directory traversal '..' diblokir! Seluruh perintah harus tetap berada di folder target."
-        }
-
     import subprocess
     try:
         # Batasi waktu eksekusi agar aman
@@ -321,7 +314,7 @@ def _act_run_command(outputs_root: Path, scope: str, args: Dict[str, Any]) -> Di
             "ok": (res.returncode == 0),
             "summary": {
                 "status": f"Hasil eksekusi perintah: <code>{_html_escape(cmd)}</code>",
-                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs max-h-[300px] overflow-y-auto w-fit max-w-full block whitespace-pre overflow-x-auto mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
             }
         }
     except Exception as e:
@@ -420,7 +413,7 @@ def _act_execute_script(outputs_root: Path, scope: str, args: Dict[str, Any]) ->
             "ok": (res.returncode == 0),
             "summary": {
                 "status": f"Hasil eksekusi script: <code>{_html_escape(cmd)}</code>",
-                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs overflow-x-auto whitespace-pre-wrap mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
+                "message": f"<pre class='bg-slate-950 text-emerald-400 p-3 rounded font-mono text-xs max-h-[300px] overflow-y-auto w-fit max-w-full block whitespace-pre overflow-x-auto mt-1 border border-slate-800 shadow-inner'>{_html_escape(output or '[No Output]')}</pre>"
             }
         }
     except Exception as e:
@@ -437,6 +430,7 @@ ACTION_REGISTRY: Dict[str, Callable[[Path, str, Dict[str, Any]], Dict[str, Any]]
     "ping": _act_ping,
     "execute_code": _act_execute_code,
     "run_command": _act_run_command,
+    "bash": _act_run_command,
     "save_script": _act_save_script,
     "execute_script": _act_execute_script,
     # alias untuk parser yang mungkin memakai nama lain

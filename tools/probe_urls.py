@@ -7,8 +7,11 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Set
 
+import sys
+import socket
+from urllib.parse import urlparse
 import httpx
 from tqdm import tqdm
 
@@ -85,6 +88,8 @@ async def fetch_url(
         except Exception as e:
             last_err = e
             rec["error"] = str(e)
+            if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout)):
+                rec["is_connect_error"] = True
             # coba ulang jika masih ada retries
     # kalau semua percobaan gagal, kembalikan rec terakhir
     return rec  # type: ignore[name-defined]
@@ -131,9 +136,79 @@ async def _runner(
     ) as client:
         sem = asyncio.Semaphore(max(1, concurrency))
 
+        dns_cache: Dict[str, bool] = {}
+        in_flight: Dict[str, asyncio.Task] = {}
+        dead_ports: Set[str] = set()
+
+        async def check_dns(host: str) -> bool:
+            if host in dns_cache:
+                return dns_cache[host]
+            if host in in_flight:
+                return await in_flight[host]
+
+            async def resolve():
+                loop = asyncio.get_running_loop()
+                try:
+                    await loop.getaddrinfo(host, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+                    dns_cache[host] = True
+                    return True
+                except socket.gaierror:
+                    dns_cache[host] = False
+                    return False
+                except Exception:
+                    return True
+                finally:
+                    in_flight.pop(host, None)
+
+            task = asyncio.create_task(resolve())
+            in_flight[host] = task
+            return await task
+
         async def worker(u: str) -> Tuple[str, Dict]:
+            try:
+                parsed = urlparse(u)
+                host = parsed.hostname or ""
+                scheme = parsed.scheme or "http"
+                port = parsed.port
+                if not port:
+                    port = 443 if scheme == "https" else 80
+                port_key = f"{scheme}://{host}:{port}"
+            except Exception:
+                host = ""
+                port_key = ""
+
+            if host:
+                dns_ok = await check_dns(host)
+                if not dns_ok:
+                    return u, {
+                        "alive": False,
+                        "code": None,
+                        "size": None,
+                        "title": None,
+                        "content_type": None,
+                        "final_url": u,
+                        "last_probe": int(time.time()),
+                        "mode": mode,
+                        "error": "Dead subdomain (DNS resolution failed)",
+                    }
+
+            if port_key and port_key in dead_ports:
+                return u, {
+                    "alive": False,
+                    "code": None,
+                    "size": None,
+                    "title": None,
+                    "content_type": None,
+                    "final_url": u,
+                    "last_probe": int(time.time()),
+                    "mode": mode,
+                    "error": "Dead port/scheme (Connection failed previously)",
+                }
+
             async with sem:
                 rec = await fetch_url(client, u, timeout=timeout, mode=mode, retries=retries)
+                if rec.get("is_connect_error") and port_key:
+                    dead_ports.add(port_key)
                 return u, rec
 
         tasks = [asyncio.create_task(worker(u)) for u in urls]
@@ -143,7 +218,7 @@ async def _runner(
         module_map: Dict[str, Dict] = {}
 
         with ndjson_path.open("a", encoding="utf-8") as ndj, tqdm(
-            total=len(tasks), desc=f"probe:{scope}", unit="url"
+            total=len(tasks), desc=f"probe:{scope}", unit="url", disable=not sys.stderr.isatty()
         ) as pbar:
             for fut in asyncio.as_completed(tasks):
                 url, rec = await fut

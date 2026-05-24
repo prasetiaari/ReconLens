@@ -16,7 +16,7 @@
   else 'documents'
 ) %}
 
-<div class="flex items-center gap-2">
+<div class="flex items-center gap-2" hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">
   <a href="/targets/{{ scope_val }}"
      class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='overview' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
     Overview

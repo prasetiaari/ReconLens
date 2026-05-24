@@ -49,8 +49,17 @@ class OllamaProvider(LLMProvider):
     Penyambung ke Ollama (localhost:11434).
     Harus pakai 'format: json' supaya balasan bisa diparse deterministik.
     """
-    def __init__(self, model: str = "llama3.1:8b", base_url: str = "http://localhost:11434", timeout: int = 30):
+    def __init__(self, model: str = "llama3.1:8b", base_url: str = None, timeout: int = 30):
         self.model = model
+        if base_url is None:
+            import os
+            env_host = os.environ.get("OLLAMA_HOST")
+            if env_host:
+                base_url = env_host
+            elif os.path.exists("/.dockerenv"):
+                base_url = "http://host.docker.internal:11434"
+            else:
+                base_url = "http://localhost:11434"
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.name = f"ollama:{self.model}"

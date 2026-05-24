@@ -407,7 +407,7 @@ async def _runner(
         tasks = [asyncio.create_task(one(h)) for h in hosts]
 
         done_alive = 0
-        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"probe:{scope}"):
+        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"probe:{scope}", disable=not sys.stderr.isatty()):
             rec: ProbeResult = await coro
             if rec.alive:
                 done_alive += 1

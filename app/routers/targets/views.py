@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.deps import get_settings, get_templates
 from ..subdomains import subdomains_page, load_enrich
 from ...services.wordlists import list_wordlists
+from app.services.enrich_urls import canon_url
 
 from .utils import gather_stats, all_hosts_for_scope
 from .utils import (
@@ -158,10 +159,11 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             continue
 
         rec_host = enrich_host.get(host) if host else None
+        cs = canon_url(s)
         rec_url  = (
-            enrich_url.get(s)
-            or (enrich_url.get(s.rstrip("/")) if s.endswith("/") else None)
-            or enrich_url.get(s + "/")
+            enrich_url.get(cs)
+            or (enrich_url.get(cs.rstrip("/")) if cs.endswith("/") else None)
+            or enrich_url.get(cs + "/")
         )
 
         scheme = (

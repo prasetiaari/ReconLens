@@ -215,6 +215,15 @@
   }
   enforceDirsearchHost();
 
+  function notifyJobFinished(status) {
+    if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+      window.parent.onCliJobFinished(status);
+    }
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: 'reconlens:job_finished', tool: tool, status: status }, '*');
+    }
+  }
+
   async function startJob(){
     if (es) { try { es.close(); } catch(_){} es = null; }
     outEl.textContent = "";
@@ -248,9 +257,7 @@
           try { es.close(); } catch(_){}
           es = null;
           append("[done] finished\n");
-          if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-            window.parent.onCliJobFinished('done');
-          }
+          notifyJobFinished('done');
           return;
         }
         append(ev.data + "\n");
@@ -260,16 +267,12 @@
         setRunning(false);
         try { es.close(); } catch(_){}
         es = null;
-        if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-          window.parent.onCliJobFinished('error');
-        }
+        notifyJobFinished('error');
       };
     }catch(err){
       append(`[error] ${err && err.message ? err.message : err}\n`);
       setRunning(false);
-      if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-        window.parent.onCliJobFinished('error');
-      }
+      notifyJobFinished('error');
     }
   }
 
@@ -282,9 +285,7 @@
     setRunning(false);
     if (es) { try { es.close(); } catch(_){ } es = null; }
     append("[info] cancel requested\n");
-    if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-      window.parent.onCliJobFinished('cancelled');
-    }
+    notifyJobFinished('cancelled');
   }
 
   runBtn?.addEventListener('click', startJob);
@@ -311,9 +312,7 @@
         try { es.close(); } catch(_){}
         es = null;
         append("[done] finished\n");
-        if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-          window.parent.onCliJobFinished('done');
-        }
+        notifyJobFinished('done');
         return;
       }
       append(ev.data + "\n");
@@ -323,9 +322,7 @@
       setRunning(false);
       try { es.close(); } catch(_){}
       es = null;
-      if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-        window.parent.onCliJobFinished('error');
-      }
+      notifyJobFinished('error');
     };
     // Notify parent immediately that job has started (re-attached)
     if (window.parent && typeof window.parent.onCliJobStarted === 'function') {

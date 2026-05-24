@@ -161,7 +161,12 @@ def build_tool_cmd(
     # --- URL collectors ---
     if tool == "gau":
         exe = resolve_external_binary("gau", cfg)
-        return [exe, "--verbose", "--o", str(out_dir / "urls.txt"), scope]
+        cmd = [exe, "--verbose"]
+        proxy_cfg = cfg.get("http", {}).get("proxy", {})
+        if proxy_cfg.get("enabled") and proxy_cfg.get("url"):
+            cmd += ["--proxy", proxy_cfg.get("url").strip()]
+        cmd.append(scope)
+        return cmd
 
     if tool == "waymore":
         exe = resolve_external_binary("waymore", cfg)

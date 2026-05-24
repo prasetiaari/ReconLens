@@ -1,34 +1,66 @@
-# Use official lightweight Python image as base
+# Stage 1: Build/compile Go security tools
+FROM golang:1.24-alpine AS go-builder
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev wget unzip
+
+# Set environment variables for static linking
+ENV CGO_ENABLED=0
+
+# Compile Go-based security tools
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
+    && go install -v github.com/lc/gau/v2/cmd/gau@latest \
+    && go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
+
+# Download and extract precompiled OWASP Amass to save memory and compile time
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then AMASS_ARCH="amd64"; \
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then AMASS_ARCH="arm64"; \
+    else AMASS_ARCH="amd64"; fi && \
+    wget -q https://github.com/owasp-amass/amass/releases/download/v4.2.0/amass_Linux_${AMASS_ARCH}.zip \
+    && unzip -q amass_Linux_${AMASS_ARCH}.zip \
+    && mv amass_Linux_${AMASS_ARCH}/amass /go/bin/amass \
+    && rm -rf amass_Linux_${AMASS_ARCH}*
+
+# Download and install Findomain precompiled binary
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then FINDOMAIN_ARCH="linux"; \
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then FINDOMAIN_ARCH="aarch64"; \
+    else FINDOMAIN_ARCH="linux"; fi && \
+    wget -q https://github.com/findomain/findomain/releases/latest/download/findomain-${FINDOMAIN_ARCH}.zip \
+    && unzip -q findomain-${FINDOMAIN_ARCH}.zip \
+    && chmod +x findomain \
+    && mv findomain /go/bin/findomain \
+    && rm -rf findomain*
+
+# Stage 2: Final lightweight runner image
 FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PATH="/root/go/bin:/usr/local/go/bin:${PATH}"
 
-# Install essential system dependencies and Go
+# Install runtime system dependencies (e.g., git for dirsearch/waymore, curl, wget, ca-certificates, procps)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
-    gcc \
-    make \
     ca-certificates \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go (needed for subfinder, gau, urlfinder compilation)
-RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz \
-    && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz \
-    && rm go1.21.5.linux-amd64.tar.gz
-
-# Install Go-based security tools
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
-    && go install -v github.com/lc/gau/v2/cmd/gau@latest \
-    && go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
+# Copy compiled Go binaries from the builder stage
+COPY --from=go-builder /go/bin/subfinder /usr/local/bin/subfinder
+COPY --from=go-builder /go/bin/gau /usr/local/bin/gau
+COPY --from=go-builder /go/bin/urlfinder /usr/local/bin/urlfinder
+COPY --from=go-builder /go/bin/amass /usr/local/bin/amass
+COPY --from=go-builder /go/bin/findomain /usr/local/bin/findomain
 
 # Set working directory inside the container
 WORKDIR /app
+
+# Create symbolic link so python -m ReconLens works seamlessly inside the container
+RUN ln -s /app /ReconLens
 
 # Copy requirements file first to utilize Docker layer caching
 COPY requirements.txt .

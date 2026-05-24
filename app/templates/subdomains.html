@@ -179,8 +179,7 @@
       {# Subfinder #}
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
-          <div class="font-medium">Subfinder</div>
-          <!--<div class="text-slate-500 text-xs">Fast, passive sources.</div>-->
+          <div class="font-medium">Subfinder ({{ tool_counts.get('subfinder', 0) if tool_counts is defined else 0 }})</div>
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.subfinder if last_scans is defined else None) or '—' }}
           </div>
@@ -192,8 +191,7 @@
       {# Amass (passive) #}
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
-          <div class="font-medium">Amass (passive)</div>
-          <!--<div class="text-slate-500 text-xs">Comprehensive, may take longer.</div>-->
+          <div class="font-medium">Amass (passive) ({{ tool_counts.get('amass', 0) if tool_counts is defined else 0 }})</div>
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.amass if last_scans is defined else None) or '—' }}
           </div>
@@ -205,8 +203,7 @@
       {# Findomain #}
       <div class="flex items-center justify-between rounded-lg border p-3">
         <div>
-          <div class="font-medium">Findomain</div>
-         <!-- <div class="text-slate-500 text-xs">Alternative passive, using different sources than Subfinder.</div>-->
+          <div class="font-medium">Findomain ({{ tool_counts.get('findomain', 0) if tool_counts is defined else 0 }})</div>
           <div class="text-slate-400 text-xs mt-1">
             last scan: {{ (last_scans.findomain if last_scans is defined else None) or '—' }}
           </div>

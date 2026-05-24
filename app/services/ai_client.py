@@ -11,7 +11,8 @@ class AIClient:
     def __init__(self):
         self.provider = os.environ.get("AI_PROVIDER", "ollama").strip().lower()
         self.model = os.environ.get("AI_MODEL", "llama3.1:8b")
-        self.ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        default_ollama = "http://host.docker.internal:11434" if os.path.exists("/.dockerenv") else "http://localhost:11434"
+        self.ollama_host = os.environ.get("OLLAMA_HOST", default_ollama).rstrip("/")
         self.openai_key = os.environ.get("OPENAI_API_KEY")
 
     def generate(self, prompt: str, temperature: float = 0.2, max_tokens: int = 1024) -> str:

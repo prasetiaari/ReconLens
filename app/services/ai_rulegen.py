@@ -9,8 +9,17 @@ import time
 import requests
 import collections
 
+import os
 DEFAULT_MODEL = "llama3.2:3b"
 DEFAULT_TIMEOUT = 60  # detik
+
+def _get_ollama_base_url() -> str:
+    env_host = os.environ.get("OLLAMA_HOST")
+    if env_host:
+        return env_host.rstrip("/")
+    if Path("/.dockerenv").exists():
+        return "http://host.docker.internal:11434"
+    return "http://localhost:11434"
 
 # ============================
 # Path helpers
@@ -129,6 +138,20 @@ def _build_prompt(urls: List[str]) -> str:
     )
 
 
+def _clean_html_for_llm(content: str) -> str:
+    if not content:
+        return ""
+    t = content
+    # Replace common block elements with newlines or spaces to preserve readability
+    t = re.sub(r'</?(div|p|li|ul|ol|br|h[1-6]|tr|pre|code)[^>]*>', '\n', t)
+    t = re.sub(r'<[^>]+>', '', t)
+    # Decode basic HTML entities to keep context clean
+    t = t.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'").replace("&apos;", "'")
+    # Normalize multiple newlines/whitespaces
+    t = re.sub(r'\n\s*\n+', '\n', t)
+    return t.strip()
+
+
 # ============================
 # Ollama call (multi-mode)
 # ============================
@@ -214,8 +237,12 @@ def _call_ollama(
             content = getattr(m, "content", None) or m.get("content") if isinstance(m, dict) else m.content
             if role in ("user", "assistant"):
                 # Clean HTML tags and buttons from assistant replies for clean context
-                if role == "assistant" and ("Plan created" in content or "✔" in content or "hx-post" in content):
-                    continue
+                if role == "assistant":
+                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan"]):
+                        continue
+                    content = _clean_html_for_llm(content)
+                    if not content:
+                        continue
                 messages_payload.append({"role": role, "content": content})
         
         # Append current user prompt
@@ -240,7 +267,7 @@ def _call_ollama(
         return resp_text
     else:
         # Local Ollama using /api/chat (native messages support!)
-        url = "http://localhost:11434/api/chat"
+        url = f"{_get_ollama_base_url()}/api/chat"
 
         messages_payload = [
             {"role": "system", "content": system_msg}
@@ -250,8 +277,12 @@ def _call_ollama(
             content = getattr(m, "content", None) or m.get("content") if isinstance(m, dict) else m.content
             if role in ("user", "assistant"):
                 # Clean HTML tags and buttons from assistant replies for clean context
-                if role == "assistant" and ("Plan created" in content or "✔" in content or "hx-post" in content):
-                    continue
+                if role == "assistant":
+                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan"]):
+                        continue
+                    content = _clean_html_for_llm(content)
+                    if not content:
+                        continue
                 messages_payload.append({"role": role, "content": content})
         
         # Append current user prompt
@@ -623,19 +654,29 @@ def parse_prompt_to_plan(
 # ============================
 # LLM-driven router (STRICT JSON chat/plan/confirm/revise)
 # ============================
-_LLAMA_API = "http://localhost:11434/api/generate"
+def _get_llama_api() -> str:
+    return f"{_get_ollama_base_url()}/api/generate"
 
 LLM_SYSTEM_MSG = (
-    "You are an AI assistant inside ReconLens.\n"
-    "Decide among four intents and ALWAYS return STRICT JSON (no markdown, no prose):\n"
+    "You are a professional security pentest copilot inside ReconLens.\n"
+    "Based on the user prompt, decide among these 4 intents and return STRICT JSON ONLY:\n"
     "1) {\"type\":\"chat\",\"reply\":\"...\"}\n"
-    "   Use when user small-talks or asks general questions (date/time, greetings, etc.).\n"
+    "   For greetings, small-talk, or questions about capabilities.\n"
     "2) {\"type\":\"actions\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n"
-    "   Use when user explicitly confirms to run or the action is clearly safe auto-run.\n"
+    "   For safe actions or when the user explicitly confirms to run an action.\n"
     "3) {\"type\":\"confirm\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n"
-    "   Use when user asks to run a tool (e.g., subdomain, dirsearch, scan) but confirmation is required.\n"
+    "   For active recon/scanning tasks that require user approval.\n"
     "4) {\"type\":\"revise\",\"question\":\"...\"}\n"
-    "   Use if the request is ambiguous and needs clarification.\n"
+    "   If the request is highly ambiguous.\n\n"
+    "Available Tools:\n"
+    "- 'bash': Use to execute ANY arbitrary Bash/shell command on the target folder (e.g. using grep, wc -l, cat, sort, awk, sed, etc.) to perform customized and deep command-line analysis, search, or triage on files like urls.txt, subdomains.txt, etc. (args: {'command': '<shell command>'}).\n"
+    "- 'analyze': Use to analyze, search (grep), summarize, or get security insights from gathered URLs/findings (args: {'target': '<scope>', 'query': '<prompt>'}).\n"
+    "- 'subdomains_alive': Use to list/filter active or alive subdomains (args: {'target': '<scope>'}).\n"
+    "- 'subfinder': Runs passive subdomain discovery (args: {'target': '<scope>'}).\n"
+    "- 'dirsearch': Runs active directory bruteforcing (args: {'target': '<scope>'}).\n"
+    "- 'gau': Runs passive URL discovery via GAU (args: {'target': '<scope>'}).\n"
+    "- 'waymore': Runs deep passive Wayback URL discovery (args: {'target': '<scope>'}).\n"
+    "- 'urlfinder': Runs active JS/HTML crawler for URL extraction (args: {'target': '<scope>'}).\n\n"
     "Keep answers in user's language. STRICT JSON ONLY."
 )
 
@@ -668,7 +709,7 @@ def _ollama_json_router(prompt: str, model: str = DEFAULT_MODEL, temperature: fl
         "format": "json",
         "options": {"temperature": float(temperature)},
     }
-    r = requests.post(_LLAMA_API, json=payload, timeout=(5, timeout))
+    r = requests.post(_get_llama_api(), json=payload, timeout=(5, timeout))
     r.raise_for_status()
     data = r.json()
     resp = data.get("response") or data.get("text") or data.get("output") or ""
@@ -763,6 +804,16 @@ def _parse_prompt_to_plan_or_chat_inner(
     if any(tok in lower for tok in smalltalk):
         return {"type": "chat", "reply": f"Halo! Siap bantu di scope {scope}. Mau analisa apa?"}
 
+    # Heuristik prioritas B: Tampilkan Subdomain Aktif / Alive
+    if "subdomain" in lower and ("aktif" in lower or "alive" in lower or "200" in lower):
+        return {
+            "type": "actions",
+            "plan": {
+                "summary": "Menyaring dan menampilkan seluruh subdomain aktif (status 200/alive).",
+                "actions": [{"tool": "subdomains_alive", "args": {"target": scope}}]
+            }
+        }
+
     # Heuristik cepat 2: Operasi matematika dasar (kalkulator instan)
     math_match = re.search(r"(\d+)\s*([x*+\-\/])\s*(\d+)", lower)
     if math_match:
@@ -789,16 +840,7 @@ def _parse_prompt_to_plan_or_chat_inner(
         except Exception:
             pass
 
-    # Heuristik cepat 3: Pencarian kata kunci / Grep pada file temuan target
-    if any(k in lower for k in ["apakah ada", "cari string", "temukan string", "mengandung string", "mengandung kata", "grep"]):
-        if "string" in lower or '"' in p or "'" in p or any(k in lower for k in ["employer", "admin", "config", "api", "v1", "git", "env", "login"]):
-            return {
-                "type": "actions",
-                "plan": {
-                    "summary": f"Pencarian kata kunci dalam file temuan target.",
-                    "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
-                }
-            }
+
 
     # Bypass cepat jika mengandung intent pembuatan/penulisan berkas/script
     has_creation_intent = any(w in lower for w in ["buat", "bikin", "create", "save", "tulis", "write", "generate", "susun"])
@@ -841,6 +883,7 @@ def _parse_prompt_to_plan_or_chat_inner(
             mode="command",
             history=history,
         )
+        print(f"[debug-llm] raw response: {resp}", flush=True)
         data = _json_loads_loose(resp)
         if not isinstance(data, dict) or "type" not in data:
             raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")

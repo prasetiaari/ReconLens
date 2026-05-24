@@ -41,14 +41,14 @@
         <div class="flex justify-start gap-3 max-w-[85%]">
           <div class="flex flex-col items-start space-y-1.5">
             <div class="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 text-sm shadow-sm font-sans leading-relaxed rounded-tl-none">
-              {% if m.meta and m.meta.html %}
+              {% if m.meta and m.meta.get('html') %}
                 {{ m.content | safe }}
               {% else %}
                 <div class="prose prose-sm max-w-none text-slate-800 font-sans whitespace-pre-wrap">{{ m.content }}</div>
               {% endif %}
 
               <!-- Actionable CLI Proposal Card -->
-              {% if m.meta and m.meta.kind == 'proposal' %}
+              {% if m.meta and m.meta.get('kind') == 'proposal' %}
                 <div class="p-4 border rounded-xl bg-slate-950 border-indigo-500/20 text-slate-100 shadow-md space-y-3 mt-3 max-w-md transition-all hover:border-indigo-500/40">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
@@ -58,22 +58,22 @@
                       </span>
                       <span class="text-[10px] font-bold tracking-wider text-indigo-400 uppercase">AI RECON PROPOSAL</span>
                     </div>
-                    <span class="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md font-mono font-bold">{{ m.meta.tool_upper }}</span>
+                    <span class="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md font-mono font-bold">{{ m.meta.get('tool_upper') }}</span>
                   </div>
                   <p class="text-xs text-slate-400 font-sans leading-relaxed">
-                    AI menyarankan pemindaian aktif menggunakan <strong>{{ m.meta.tool_name }}</strong> untuk target <strong>{{ scope }}</strong>. Klik tombol di bawah untuk meluncurkannya di persistent sidebar drawer!
+                    AI menyarankan pemindaian aktif menggunakan <strong>{{ m.meta.get('tool_name') }}</strong> untuk target <strong>{{ scope }}</strong>. Klik tombol di bawah untuk meluncurkannya di persistent sidebar drawer!
                   </p>
                   <div class="pt-1">
-                    <button onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/{{ m.meta.tool }}{{ m.meta.query_params }}')" 
+                    <button onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/{{ m.meta.get('tool') }}{{ m.meta.get('query_params') }}')" 
                             class="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 font-sans">
-                      🚀 Luncurkan {{ m.meta.tool_upper }} Console
+                      🚀 Luncurkan {{ m.meta.get('tool_upper') }} Console
                     </button>
                   </div>
                 </div>
               {% endif %}
 
               <!-- Execution Confirmation Card (Plan Drafts) -->
-              {% if m.meta and m.meta.kind == 'plan-draft' %}
+              {% if m.meta and m.meta.get('kind') == 'plan-draft' %}
                 <div class="mt-3 rounded-xl border border-amber-200/50 bg-amber-50/50 p-4 text-sm shadow-sm space-y-2.5">
                   <div class="font-semibold text-amber-900 flex items-center gap-1.5">
                     ⚠️ Konfirmasi Eksekusi Rencana
@@ -97,8 +97,8 @@
               {% endif %}
             </div>
             <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1 font-mono">
-              {% if m.meta and m.meta.model_name %}
-                <span>🤖 {{ m.meta.model_name }}</span>
+              {% if m.meta and m.meta.get('model_name') %}
+                <span>🤖 {{ m.meta.get('model_name') }}</span>
               {% else %}
                 <span>🤖 ReconLens Copilot</span>
               {% endif %}

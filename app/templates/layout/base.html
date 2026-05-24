@@ -14,6 +14,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <!-- xterm.js + FitAddon (lazy-loaded only when terminal is opened) -->
+  <link id="xtermCss" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" media="print" onload="this.media='all'">
   {% block head_extra %}{% endblock %}
   <style>
     /* Styling if running inside an iframe */
@@ -43,7 +45,7 @@
     {% block modals %}{% endblock %}
     <header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-10">
     <div class="max-w-6xl mx-auto flex items-center justify-between">
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-3" hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">
         <!-- Logo -->
         <a href="/"><img src="/static/img/reconlens-logo.png" alt="ReconLens" class="h-10"></a>
 
@@ -63,7 +65,7 @@
           </nav>
       </div>
 
-      <div class="text-sm text-slate-500 flex items-center gap-3">
+      <div class="text-sm text-slate-500 flex items-center gap-3" hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">
         <a href="/settings" class="hover:underline">Settings</a>
         <span class="text-slate-300">|</span>
         <a href="/about" class="hover:underline">About</a>
@@ -230,7 +232,29 @@
 
   window.onCliJobFinished = function(status) {
     stopTimer(status);
+    // Smoothly refresh target content when any tool finishes successfully
+    if (status === 'done') {
+      if (typeof htmx !== 'undefined') {
+        htmx.ajax('GET', window.location.pathname, { target: '#appWrapper', select: '#appWrapper', swap: 'outerHTML' });
+      } else {
+        window.location.reload();
+      }
+    }
   };
+
+  // Listen for message events from CLI consoles running in separate tabs
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'reconlens:job_finished') {
+      const status = event.data.status;
+      if (status === 'done') {
+        if (typeof htmx !== 'undefined') {
+          htmx.ajax('GET', window.location.pathname, { target: '#appWrapper', select: '#appWrapper', swap: 'outerHTML' });
+        } else {
+          window.location.reload();
+        }
+      }
+    }
+  });
 
   function openSidebar(url) {
     document.querySelectorAll('[id*="Modal"]').forEach(el => {
@@ -357,6 +381,339 @@
   }
   
   checkActiveJobs();
+})();
+</script>
+{% endif %}
+
+<!-- ========================================== -->
+<!-- PERSISTENT INTERACTIVE MULTI-TERMINAL WIDGET -->
+<!-- ========================================== -->
+{% if scope %}
+<div id="terminalWidgetContainer" class="fixed bottom-4 right-4 z-[9999] flex flex-col items-end">
+
+  <!-- Minimized Floating Button -->
+  <button id="terminalFloatingBtn" class="flex items-center gap-2 px-4 py-3 rounded-full bg-slate-900 text-white shadow-xl hover:bg-slate-800 transition-all font-semibold text-sm border border-slate-700">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 text-emerald-400">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+    </svg>
+    Terminal Console
+    <span id="termActiveCount" class="hidden px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-black text-xs">0</span>
+  </button>
+
+  <!-- Terminal Window Panel -->
+  <div id="terminalPanel" style="display:none;width:820px;max-width:calc(100vw - 2rem);height:500px;border-radius:10px;box-shadow:0 30px 80px rgba(0,0,0,0.85),0 0 0 1px #1a2e1a;flex-direction:column;overflow:hidden;opacity:0;transform:scale(0.96) translateY(16px);transition:opacity 0.2s ease,transform 0.2s ease;font-family:'JetBrains Mono','Cascadia Code','Fira Code','SF Mono','Menlo',monospace;">
+
+    <!-- Title bar (draggable) -->
+    <div id="termTitleBar" style="background:#1c1c1c;border-bottom:1px solid #252525;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;user-select:none;cursor:move;flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="termCloseWindowBtn" style="width:13px;height:13px;border-radius:50%;background:#ff5f56;border:none;cursor:pointer;padding:0;" title="Minimize"></button>
+        <button id="termMinimizeBtn" style="width:13px;height:13px;border-radius:50%;background:#ffbd2e;border:none;cursor:pointer;padding:0;" title="Minimize"></button>
+        <div style="width:13px;height:13px;border-radius:50%;background:#28c840;"></div>
+        <span style="margin-left:8px;font-size:12px;color:#888;letter-spacing:0.04em;">bash — root@reconlens — {{ scope }}</span>
+      </div>
+      <span style="font-size:10px;color:#3a3a3a;">drag to move</span>
+    </div>
+
+    <!-- Tabs bar -->
+    <div style="background:#141414;border-bottom:1px solid #1f2a1f;display:flex;align-items:flex-end;padding:0 8px;min-height:36px;flex-shrink:0;">
+      <div id="terminalTabsList" style="display:flex;gap:2px;overflow-x:auto;flex:1;align-items:flex-end;padding-top:4px;"></div>
+      <button id="termCreateTabBtn" style="padding:3px 10px;margin-bottom:4px;margin-left:6px;background:transparent;border:1px solid #2a3d2a;border-radius:4px;color:#4ade80;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;flex-shrink:0;" title="New terminal">+ NEW</button>
+    </div>
+
+    <!-- xterm.js mount area -->
+    <div id="terminalScreen" style="flex:1;overflow:hidden;background:#0c0e0c;position:relative;"></div>
+
+    <!-- Status bar -->
+    <div style="background:#0a0c0a;border-top:1px solid #111;padding:3px 14px;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#555;flex-shrink:0;font-family:inherit;">
+      <span>scope: <span style="color:#4ade80;font-weight:700;">{{ scope }}</span></span>
+      <span id="termStatusLabel" style="color:#4ade80;">READY</span>
+      <button id="termCloseTabBtn" style="background:none;border:none;color:#ff5f56;cursor:pointer;font-size:10px;font-family:inherit;padding:0;" onmouseover="this.style.color='#ff9090'" onmouseout="this.style.color='#ff5f56'">CLOSE TAB</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .xterm-tab { padding:4px 14px;border-radius:6px 6px 0 0;font-size:11px;font-family:'JetBrains Mono','Cascadia Code','Fira Code','SF Mono','Menlo',monospace;cursor:pointer;border:none;background:#1a1a1a;color:#666;display:flex;align-items:center;gap:6px;border-top:2px solid transparent; }
+  .xterm-tab.active { background:#0c0e0c;color:#4ade80;border-top-color:#16a34a; }
+  .xterm-tab:not(.active):hover { background:#222;color:#aaa; }
+  @keyframes xterm-pulse { 0%,100%{opacity:1;}50%{opacity:0.2;} }
+  .xterm-dot { width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:xterm-pulse 1.2s infinite;flex-shrink:0; }
+  /* xterm.js overrides */
+  .xterm { height:100% !important; }
+  .xterm-viewport { background:#0c0e0c !important; }
+  .xterm-screen { padding: 4px 6px; }
+</style>
+
+<script>
+(function() {
+  var T_SCOPE = {{ scope|tojson }};
+
+  // DOM refs
+  var tContainer = document.getElementById('terminalWidgetContainer');
+  var tFloatBtn  = document.getElementById('terminalFloatingBtn');
+  var tPanel     = document.getElementById('terminalPanel');
+  var tTitleBar  = document.getElementById('termTitleBar');
+  var tCloseWin  = document.getElementById('termCloseWindowBtn');
+  var tMinBtn    = document.getElementById('termMinimizeBtn');
+  var tNewTabBtn = document.getElementById('termCreateTabBtn');
+  var tTabsList  = document.getElementById('terminalTabsList');
+  var tScreen    = document.getElementById('terminalScreen');
+  var tCloseTab  = document.getElementById('termCloseTabBtn');
+  var tBadge     = document.getElementById('termActiveCount');
+  var tStatus    = document.getElementById('termStatusLabel');
+
+  var activeTabId = null;
+  var tabs = [];
+  var isOpen = false;
+
+  // xterm.js sessions: { term_id: { term, fitAddon, ws, el } }
+  var sessions = {};
+
+  var XTERM_THEME = {
+    background: '#0c0e0c',   foreground: '#d0e8d0',
+    cursor: '#4ade80',        cursorAccent: '#0c0e0c',
+    selectionBackground: '#2d5a2d',
+    black:'#374151',    red:'#f87171',    green:'#4ade80',   yellow:'#fbbf24',
+    blue:'#60a5fa',     magenta:'#c084fc', cyan:'#34d399',   white:'#e2e8f0',
+    brightBlack:'#6b7280',   brightRed:'#fca5a5',   brightGreen:'#86efac',
+    brightYellow:'#fde68a',  brightBlue:'#93c5fd',  brightMagenta:'#e879f9',
+    brightCyan:'#6ee7b7',    brightWhite:'#f8fafc',
+  };
+
+  // ── xterm.js lazy loader ──────────────────────────────────────────────────
+  var xtermLoaded = false;
+  var xtermLoadCallbacks = [];
+
+  function loadXterm(cb) {
+    if (xtermLoaded) { cb(); return; }
+    xtermLoadCallbacks.push(cb);
+    if (xtermLoadCallbacks.length > 1) return; // already loading
+
+    var s1 = document.createElement('script');
+    s1.src = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js';
+    s1.onload = function() {
+      var s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js';
+      s2.onload = function() {
+        xtermLoaded = true;
+        xtermLoadCallbacks.forEach(function(fn) { fn(); });
+        xtermLoadCallbacks = [];
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+  }
+
+  // ── Tab management ────────────────────────────────────────────────────────
+  async function loadTabs() {
+    try {
+      var r = await fetch('/targets/' + encodeURIComponent(T_SCOPE) + '/terminals');
+      if (!r.ok) return;
+      tabs = await r.json();
+      if (!activeTabId && tabs.length) activeTabId = tabs[0].id;
+      else if (tabs.length && !tabs.find(function(t){return t.id===activeTabId;})) activeTabId = tabs[0].id;
+      renderTabsBar();
+      // Update badge: count live WS connections
+      var alive = Object.values(sessions).filter(function(s){return s.ws && s.ws.readyState === WebSocket.OPEN;}).length;
+      tBadge.textContent = alive;
+      if (alive > 0) tBadge.classList.remove('hidden'); else tBadge.classList.add('hidden');
+    } catch(e) {}
+  }
+
+  function renderTabsBar() {
+    tTabsList.innerHTML = '';
+    tabs.forEach(function(t) {
+      var btn = document.createElement('button');
+      btn.className = 'xterm-tab' + (t.id === activeTabId ? ' active' : '');
+      var s = sessions[t.id];
+      if (s && s.ws && s.ws.readyState === WebSocket.OPEN) {
+        var dot = document.createElement('span'); dot.className = 'xterm-dot'; btn.appendChild(dot);
+      }
+      btn.appendChild(document.createTextNode(t.name));
+      btn.onclick = function() { activeTabId = t.id; renderTabsBar(); activateSession(t.id); };
+      tTabsList.appendChild(btn);
+    });
+  }
+
+  async function newTab() {
+    try {
+      var r = await fetch('/targets/' + encodeURIComponent(T_SCOPE) + '/terminals/create', {method:'POST'});
+      if (r.ok) {
+        var d = await r.json(); activeTabId = d.id;
+        await loadTabs();
+        activateSession(activeTabId);
+      }
+    } catch(e) {}
+  }
+
+  async function closeTab() {
+    if (!activeTabId) return;
+    // Destroy local session
+    destroySession(activeTabId);
+    try {
+      await fetch('/targets/' + encodeURIComponent(T_SCOPE) + '/terminals/' + encodeURIComponent(activeTabId) + '/close', {method:'POST'});
+      activeTabId = null;
+      await loadTabs();
+      if (activeTabId) activateSession(activeTabId);
+    } catch(e) {}
+  }
+
+  // ── xterm.js session lifecycle ─────────────────────────────────────────────
+  function activateSession(termId) {
+    // Hide all session containers
+    Object.values(sessions).forEach(function(s) { s.el.style.display = 'none'; });
+    if (sessions[termId]) {
+      // Already created — just show it
+      sessions[termId].el.style.display = '';
+      setTimeout(function() {
+        try { sessions[termId].fitAddon.fit(); sessions[termId].term.focus(); } catch(_) {}
+      }, 30);
+      return;
+    }
+    // Create new session
+    loadXterm(function() { createSession(termId); });
+  }
+
+  function createSession(termId) {
+    var el = document.createElement('div');
+    el.style.cssText = 'position:absolute;inset:0;';
+    tScreen.appendChild(el);
+
+    var term = new Terminal({
+      theme: XTERM_THEME,
+      fontFamily: "'JetBrains Mono','Cascadia Code','Fira Code','SF Mono','Menlo',monospace",
+      fontSize: 13,
+      lineHeight: 1.5,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      scrollback: 5000,
+      allowTransparency: false,
+      convertEol: false,
+    });
+
+    var fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(el);
+
+    // WebSocket connection
+    var wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = wsProto + '//' + location.host + '/targets/' + encodeURIComponent(T_SCOPE) + '/terminals/' + encodeURIComponent(termId) + '/ws';
+    var ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function() {
+      tStatus.textContent = 'CONNECTED';
+      tStatus.style.color = '#4ade80';
+      sendResize();
+      term.focus();
+      renderTabsBar();
+    };
+
+    ws.onmessage = function(e) {
+      term.write(e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data);
+    };
+
+    ws.onerror = function() {
+      tStatus.textContent = 'ERROR';
+      tStatus.style.color = '#f87171';
+    };
+
+    ws.onclose = function() {
+      term.write('\r\n\x1b[31m[Session closed]\x1b[0m\r\n');
+      tStatus.textContent = 'CLOSED';
+      tStatus.style.color = '#f87171';
+      renderTabsBar();
+    };
+
+    // Forward keystrokes to PTY
+    term.onData(function(data) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
+      }
+    });
+
+    // Handle terminal resize
+    function sendResize() {
+      try { fitAddon.fit(); } catch(_) {}
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', rows: term.rows, cols: term.cols }));
+      }
+    }
+
+    // Observe container resize (e.g. panel drag/window resize)
+    var ro = new ResizeObserver(function() { sendResize(); });
+    ro.observe(el);
+
+    sessions[termId] = { term: term, fitAddon: fitAddon, ws: ws, el: el, ro: ro, sendResize: sendResize };
+    renderTabsBar();
+  }
+
+  function destroySession(termId) {
+    var s = sessions[termId];
+    if (!s) return;
+    try { s.ws.close(); } catch(_) {}
+    try { s.ro.disconnect(); } catch(_) {}
+    try { s.term.dispose(); } catch(_) {}
+    try { s.el.remove(); } catch(_) {}
+    delete sessions[termId];
+  }
+
+  // ── Panel open / close ────────────────────────────────────────────────────
+  function openPanel() {
+    isOpen = true;
+    tFloatBtn.style.display = 'none';
+    tPanel.style.display = 'flex';
+    requestAnimationFrame(function() {
+      tPanel.style.opacity = '1';
+      tPanel.style.transform = 'scale(1) translateY(0)';
+    });
+    // Activate/create session for current tab
+    if (activeTabId) {
+      loadXterm(function() { activateSession(activeTabId); });
+    } else {
+      loadTabs().then(function() {
+        if (activeTabId) loadXterm(function() { activateSession(activeTabId); });
+      });
+    }
+  }
+
+  function closePanel() {
+    isOpen = false;
+    tPanel.style.opacity = '0';
+    tPanel.style.transform = 'scale(0.96) translateY(16px)';
+    setTimeout(function() { tPanel.style.display = 'none'; tFloatBtn.style.display = ''; }, 200);
+  }
+
+  // ── Drag to move ───────────────────────────────────────────────────────────
+  var dg = null;
+  tTitleBar.addEventListener('mousedown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    var cs = getComputedStyle(tContainer);
+    dg = { x:e.clientX, y:e.clientY, r:parseFloat(cs.right)||16, b:parseFloat(cs.bottom)||16 };
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dg) return;
+    tContainer.style.right  = Math.max(0, dg.r - (e.clientX - dg.x)) + 'px';
+    tContainer.style.bottom = Math.max(0, dg.b - (e.clientY - dg.y)) + 'px';
+    // Refit active xterm on drag
+    if (activeTabId && sessions[activeTabId]) {
+      try { sessions[activeTabId].fitAddon.fit(); } catch(_) {}
+    }
+  });
+  document.addEventListener('mouseup', function() { dg = null; document.body.style.userSelect = ''; });
+
+  // ── Bindings ───────────────────────────────────────────────────────────────
+  tFloatBtn .addEventListener('click', openPanel);
+  tCloseWin .addEventListener('click', closePanel);
+  tMinBtn   .addEventListener('click', closePanel);
+  tNewTabBtn.addEventListener('click', newTab);
+  tCloseTab .addEventListener('click', closeTab);
+
+  // Initial tab load (for badge count)
+  loadTabs();
+  // Background sync every 10s (just for badge, not output)
+  setInterval(loadTabs, 10000);
 })();
 </script>
 {% endif %}

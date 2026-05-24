@@ -310,12 +310,30 @@ async def _run_job(
         assert proc.stdout is not None
         preview_count = 0
         preview_capped = False
+
+        async def read_lines(stream: asyncio.StreamReader):
+            buffer = bytearray()
+            while True:
+                chunk = await stream.read(8192)
+                if not chunk:
+                    if buffer:
+                        yield bytes(buffer)
+                    break
+                buffer.extend(chunk)
+                while b'\n' in buffer:
+                    idx = buffer.index(b'\n')
+                    yield bytes(buffer[:idx])
+                    del buffer[:idx + 1]
+                if len(buffer) > 1024 * 1024:  # 1MB limit protection
+                    yield bytes(buffer[:1024 * 1024])
+                    del buffer[:1024 * 1024]
+
         with open(log_path, "w", encoding="utf-8", errors="ignore") as log_f, \
              open(tmp_urls, "w", encoding="utf-8", errors="ignore") as urls_f, \
              open(raw_path, "w", encoding="utf-8", errors="ignore") as raw_f:
 
-            async for raw in proc.stdout:
-                line = raw.decode("utf-8", "ignore").rstrip("\n")
+            async for raw in read_lines(proc.stdout):
+                line = raw.decode("utf-8", "ignore").rstrip("\r\n")
                 log_f.write(line + "\n"); log_f.flush()
                 raw_f.write(line + "\n"); raw_f.flush()
 

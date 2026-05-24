@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import re
+import sys
 import fnmatch
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -293,7 +294,7 @@ def main() -> None:
 
     itr: Iterable[str] = iter_lines(args.input)
     if tqdm:
-        itr = tqdm(itr, desc="Classifying", unit="url")
+        itr = tqdm(itr, desc="Classifying", unit="url", disable=not sys.stderr.isatty())
 
     for raw in itr:
         if not raw:

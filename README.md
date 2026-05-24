@@ -13,8 +13,10 @@ Development started during **Tangsel Bug Bounty 2025**, so many features come fr
 1. Subdomain enumeration support (Amass, Subfinder, Findomain)
 2. URL collection: GAU and Waymore for gathering endpoints and archived URLs.
 3. Path probing: Dirsearch and other directory-fuzzing tools for probing paths.
-4. Sensitive path detection & classification modules — detect and categorize endpoints such as admin, auth, api, upload, docs, and dev/staging
-5. FastAPI-based web UI (dashboard + graphs)
+4. Sensitive path detection & classification modules — detect and categorize endpoints such as admin, auth, api, upload, docs, and dev/staging.
+5. Interactive Web Terminal (xterm.js) — Run CLI tools like `vim`, `htop`, or `nano` directly from your browser.
+6. Local AI Integration — Analyze endpoints and generate automated recon rules using local LLMs (via Ollama).
+7. FastAPI-based web UI (dashboard + graphs)
 
 ## ReconLens Workflow
 
@@ -45,21 +47,44 @@ In these menus you can:
 - **(re)probe** — run active probes against URLs contained within the respective module.
  
 
-## Setup (Python virtual environment)
+## Installation & Setup (Docker Compose)
+
+The easiest and recommended way to run ReconLens is using Docker Compose. This ensures all tools (Go, Python, Amass, Subfinder, etc.) are installed perfectly in an isolated environment.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/prasetiaari/ReconLens.git
+
+# 2. Enter the directory
+cd ReconLens
+
+# 3. Build and run in the background
+docker compose up -d --build
+```
+
+Access the UI at: **http://localhost:8003**
+
+## AI Features Setup (Ollama)
+ReconLens supports analyzing targets and generating automated tasks using local AI models.
+1. Download and install [Ollama](https://ollama.com/) on your host machine.
+2. Run the default model in your terminal (this will download ~3GB-4GB of model weights):
+   ```bash
+   ollama run llama3.1:8b
+   ```
+3. ReconLens will automatically connect to `http://host.docker.internal:11434` or `http://localhost:11434` to utilize the AI.
+
+## Setup (Manual Python Environment)
+If you prefer not to use Docker, you can run it manually:
+```bash
 python3 -m venv venv
-
 source venv/bin/activate
-
 pip3 install -r requirements.txt
 
-## Install external tools (Go required)
+# Install external Go tools
 go install github.com/lc/gau/v2/cmd/gau@latest
-
 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-
 go install github.com/owasp-amass/amass/v4/...@latest
 
-# Run
-uvicorn app.main:app --port 8000
-
-*(replace port if needed)*
+# Run the server
+uvicorn app.main:app --host 0.0.0.0 --port 8003
+```

@@ -1,5 +1,6 @@
 fastapi==0.95.2
-uvicorn
+uvicorn[standard]
+websockets
 jinja2
 httpx[http2]
 tqdm

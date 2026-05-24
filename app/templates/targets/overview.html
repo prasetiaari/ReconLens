@@ -127,21 +127,18 @@
           <div>{{ "{:,}".format((sub.size_bytes if sub else 0) | int) }} bytes</div>
         </div>
       </div>
-      <div class="mt-4 flex gap-2">
-        <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-           href="/targets/{{ scope }}/subdomains">View</a>
-        <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
+      <div class="mt-4 flex flex-wrap gap-2">
+        <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition"
+           href="/targets/{{ scope }}/subdomains"
+           hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">View</a>
+        <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 transition"
            href="/targets/{{ scope }}/download/subdomains.txt">Download</a>
-          <a class="px-3 py-1.5 rounded-lg bg-red-400 text-white text-sm"
-             href="/targets/{{ scope }}/collect/probe_subdomains"
-             target="_blank" rel="noopener">
-             🌐 Probe
-          </a>
-        <!--{% if (subd and subd.lines > 0) %}
-          <span class="ml-auto px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs">ready</span>
-        {% else %}
-          <span class="ml-auto px-2 py-1 rounded bg-slate-100 text-slate-500 text-xs">empty</span>
-        {% endif %}-->
+        <button id="recollectBtnCard" type="button" class="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition">
+          (re)collect
+        </button>
+        <button id="reprobeBtnCard" type="button" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-sm font-medium hover:bg-rose-100 transition">
+          (re)probe
+        </button>
       </div>
     </div>
   </div>
@@ -178,7 +175,8 @@
                href="/targets/{{ scope }}/collect/probe_module?module=dirsearch"
                target="_blank" rel="noopener">▶ Run</a>-->
             <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-               href="/targets/{{ scope }}/dirsearch">View</a>
+               href="/targets/{{ scope }}/dirsearch"
+               hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">View</a>
             <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
                href="/targets/{{ scope }}/download/{{ dir_mod.file }}">Download</a>
             <!--{% if dir_mod.lines and dir_mod.lines > 0 %}
@@ -215,7 +213,8 @@
                href="/targets/{{ scope }}/collect/probe_module?module=probe_paths"
                target="_blank" rel="noopener">▶ Run</a>-->
             <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-               href="/targets/{{ scope }}/probe_paths">View</a>
+               href="/targets/{{ scope }}/probe_paths"
+               hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">View</a>
             <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
                href="/targets/{{ scope }}/download/{{ ppaths.file }}">Download</a>
             <!--{% if ppaths.lines and ppaths.lines > 0 %}
@@ -261,7 +260,8 @@
 
             <div class="mt-4 flex gap-2">
               <a class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-                 href="/targets/{{ scope }}/{{ st.module }}">View</a>
+                 href="/targets/{{ scope }}/{{ st.module }}"
+                 hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">View</a>
               <a class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm"
                  href="/targets/{{ scope }}/download/{{ st.file }}">Download</a>
               {# 🔍 Tombol Probe (dinamis per module) #}
@@ -310,6 +310,102 @@
       <p class="text-xs text-slate-500">
         Tip: This process will open in a new tab, and you can continue using this application while waiting for it to finish.
       </p>
+    </div>
+  </div>
+</div>
+
+<!-- collect subdomains modal -->
+<div id="collectSubdomainsModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-20 w-[92%] max-w-2xl rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-lg font-semibold text-slate-800">Collect subdomains</div>
+      <button id="collectSubdomainsClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-slate-600">
+        Select a tool to collect subdomains from <span class="font-mono">{{ scope }}</span>:
+      </p>
+
+      {# Subfinder #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Subfinder ({{ tool_counts.get('subfinder', 0) if tool_counts is defined else 0 }})</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.subfinder if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/subfinder" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
+      </div>
+
+      {# Amass (passive) #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Amass (passive) ({{ tool_counts.get('amass', 0) if tool_counts is defined else 0 }})</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.amass if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/amass" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
+      </div>
+
+      {# Findomain #}
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Findomain ({{ tool_counts.get('findomain', 0) if tool_counts is defined else 0 }})</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.findomain if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <a href="/targets/{{ scope }}/collect/findomain" target="_blank" rel="noopener"
+           class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</a>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Tip: This process will open in a new tab, and you can continue using this application while waiting for it to finish.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- probe subdomains modal -->
+<div id="probeSubdomainsModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-24 w-[92%] max-w-lg rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-sm font-semibold text-slate-800">Run Probe: SUBDOMAINS</div>
+      <button id="probeSubdomainsClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+
+    <div class="p-5 space-y-4 text-sm">
+      <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-700">
+        <div class="font-medium">Active scanning</div>
+        <div>This tool will send HTTP requests to verify which subdomains are alive. Make sure you have authorization.</div>
+      </div>
+
+      <div class="text-slate-600">
+        <div>Scope: <span class="font-mono">{{ scope }}</span></div>
+        <div>Target File: <span class="font-mono">outputs/{{ scope }}/subdomains.txt</span></div>
+        <div>Hosts to Probe: <span class="font-mono">{{ ("{:,}".format(sub.lines) if sub else 0) }}</span> hosts</div>
+      </div>
+
+      <label class="flex items-start gap-2 mt-1">
+        <input id="probeSubdomainsAgree" type="checkbox" class="mt-1 accent-rose-600">
+        <span class="text-slate-600">I understand this is an active scan and I have authorization.</span>
+      </label>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button id="probeSubdomainsRun" disabled
+                class="px-3 py-2 rounded-lg bg-rose-600 text-white text-sm disabled:opacity-50">
+          Run probe
+        </button>
+        <button id="probeSubdomainsCancel" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-sm">
+          Cancel
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -416,16 +512,50 @@
 
   // collect & build
   bindModal('recollectBtn',       'recollectModal', 'recollectClose');
+  bindModal('recollectBtnCard',   'collectSubdomainsModal', 'collectSubdomainsClose');
   bindModal('rebuildBtn',         'rebuildModal',   'rebuildClose');
   bindModal('rebuildBtnSecondary','rebuildModal',   'rebuildClose');
 
   // probe
   const { modal: probeModal } = bindModal('reprobeBtn','reprobeModal','reprobeClose');
+  bindModal('reprobeBtnCard',     'probeSubdomainsModal',   'probeSubdomainsClose');
   document.getElementById('reprobeClose2')?.addEventListener('click', ()=> {
     probeModal.classList.add('hidden'); probeModal.setAttribute('aria-hidden','true');
   });
 
   const scope = {{ scope|tojson }};
+
+  // Probe subdomains modal controls
+  const probeSubAgree = document.getElementById('probeSubdomainsAgree');
+  const probeSubRun = document.getElementById('probeSubdomainsRun');
+  const probeSubCancel = document.getElementById('probeSubdomainsCancel');
+  const probeSubModal = document.getElementById('probeSubdomainsModal');
+
+  function updateProbeSubEnable() {
+    if (probeSubRun) {
+      probeSubRun.disabled = !(probeSubAgree?.checked);
+    }
+  }
+  probeSubAgree?.addEventListener('change', updateProbeSubEnable);
+  updateProbeSubEnable();
+
+  probeSubCancel?.addEventListener('click', () => {
+    probeSubModal?.classList.add('hidden');
+    probeSubModal?.setAttribute('aria-hidden', 'true');
+  });
+
+  probeSubRun?.addEventListener('click', () => {
+    const url = `/targets/${encodeURIComponent(scope)}/collect/probe_subdomains`;
+    if (window.parent && typeof window.parent.openCliRunnerSidebar === 'function') {
+      window.parent.openCliRunnerSidebar(url);
+    } else if (typeof window.openCliRunnerSidebar === 'function') {
+      window.openCliRunnerSidebar(url);
+    } else {
+      window.open(url, '_blank');
+    }
+    probeSubModal?.classList.add('hidden');
+    probeSubModal?.setAttribute('aria-hidden', 'true');
+  });
   const agree = document.getElementById('probeAgree');
   const runBtn= document.getElementById('probeRun');
   const modWrap = document.getElementById('probeModuleWrap');

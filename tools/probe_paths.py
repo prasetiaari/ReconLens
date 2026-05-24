@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import time
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -328,7 +329,7 @@ async def _runner(
     sem_host: Dict[str, asyncio.Semaphore] = {}
 
     async with httpx.AsyncClient(**client_args) as client:
-        pbar = tqdm(total=len(work), desc="probe_paths", unit="req")
+        pbar = tqdm(total=len(work), desc="probe_paths", unit="req", disable=not sys.stderr.isatty())
 
         async def do_one(base: str, path: str, method: str, body: Optional[str]):
             host = urlparse(base).hostname or base

@@ -36,8 +36,8 @@
       <td class="px-4 py-2">
        
           <button class="btn-open text-blue-600 hover:underline"
-                data-url={{ r.open_url|tojson }}
-                data-method={{ (r.method or 'GET')|tojson }}>
+                data-url="{{ r.open_url }}"
+                data-method="{{ r.method or 'GET' }}">
           open
         </button>
         </td>

@@ -9,7 +9,7 @@
     <p class="text-slate-500 text-sm">Visual exploration for this target.</p>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4" hx-boost="true" hx-target="#appWrapper" hx-select="#appWrapper" hx-swap="outerHTML">
     <a href="/targets/{{ scope }}/graphs/subdomains/"
        class="block rounded-xl border border-slate-200 p-4 hover:shadow-sm">
       <div class="text-sm font-semibold text-slate-700 mb-1">Subdomains → IP Clusters</div>
