@@ -1021,6 +1021,8 @@ def _parse_prompt_to_plan_or_chat_inner(
             # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
             # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
             if resp and len(resp.strip()) > 5:
+                if err_container is not None:
+                    err_container.clear() # Clear error so it doesn't get tagged as Heuristic Fallback
                 return {"type": "chat", "reply": resp}
             break
 
