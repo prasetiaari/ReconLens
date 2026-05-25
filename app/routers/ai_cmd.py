@@ -132,9 +132,12 @@ async def ai_command_parse(
             base_prompt = user_text
 
     # Panggil wrapper parser
+    def _append_cb(role: str, content: str, meta: Optional[dict] = None):
+        st.append_msg(thread_id, Msg.new(role, content, meta or {}))
+
     parsed = parse_prompt_to_plan_or_chat(
         prompt=base_prompt or user_text, scope=scope, model=model, intent=intent,
-        history=history_msgs
+        history=history_msgs, append_msg_cb=_append_cb
     )
 
     # Jika type=actions -> simpan plan, minta konfirmasi
@@ -145,8 +148,8 @@ async def ai_command_parse(
         st.append_msg(thread_id, Msg.new("assistant", "✔ Plan created.", {}))
         st.append_msg(thread_id, Msg.new("assistant", _confirmation_card(scope, thread_id, plan), {"html": True}))
     else:
-        # Chat biasa
-        reply = parsed.get("reply") or parsed.get("message") or "Baik."
+        # Chat atau Revise
+        reply = parsed.get("reply") or parsed.get("message") or parsed.get("question") or "Baik."
         meta = parsed.get("meta") or {}
         st.append_msg(thread_id, Msg.new("assistant", reply, meta))
 

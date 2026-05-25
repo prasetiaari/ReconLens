@@ -37,7 +37,7 @@
               {% if m.meta and m.meta.get('html') %}
                 {{ m.content | safe }}
               {% else %}
-                <div class="prose prose-sm max-w-none text-slate-800 font-sans whitespace-pre-wrap">{{ m.content }}</div>
+                <div class="prose prose-sm max-w-none text-slate-800 font-sans md-content">{{ m.content }}</div>
               {% endif %}
 
               <!-- Actionable CLI Proposal Card -->
@@ -110,3 +110,16 @@
     {% endif %}
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+  if (typeof marked !== 'undefined') {
+    document.querySelectorAll('.md-content:not(.parsed)').forEach(el => {
+      // Decode html entities first since jinja escaped them
+      let txt = el.innerHTML;
+      txt = txt.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      el.innerHTML = marked.parse(txt);
+      el.classList.add('parsed');
+    });
+  }
+</script>

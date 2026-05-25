@@ -788,7 +788,8 @@ def _parse_prompt_to_plan_or_chat_inner(
     intent: str = "auto",
     timeout: int = DEFAULT_TIMEOUT,
     err_container: list = None,
-    history: list = None
+    history: list = None,
+    append_msg_cb = None
 ) -> Dict[str, Any]:
     """
     Return salah satu:
@@ -845,9 +846,17 @@ def _parse_prompt_to_plan_or_chat_inner(
                             a["args"].setdefault("target", scope)
                 
                     # Check for agentic background bash tool
-                    if t in ("actions", "confirm") and acts and len(acts) == 1 and acts[0].get("tool", "").lower() == "bash":
-                        cmd = acts[0].get("args", {}).get("command")
-                        if cmd:
+                    is_all_bash = acts and all(a.get("tool", "").lower() == "bash" for a in acts)
+                    if t in ("actions", "confirm") and is_all_bash:
+                        combined_output = ""
+                        has_executed = False
+                        
+                        for a in acts:
+                            cmd = a.get("args", {}).get("command")
+                            if not cmd:
+                                continue
+                            
+                            has_executed = True
                             try:
                                 cwd = f"outputs/{scope}"
                                 if not os.path.exists(cwd):
@@ -855,19 +864,40 @@ def _parse_prompt_to_plan_or_chat_inner(
                             
                                 # Limit output to avoid context window explosion
                                 run_res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=15)
-                                output = run_res.stdout.strip()
+                                out_text = run_res.stdout.strip()
                                 if run_res.stderr:
-                                    output += "\n" + run_res.stderr.strip()
-                                if not output:
-                                    output = "(Command executed successfully, no output)"
-                                if len(output) > 2000:
-                                    output = output[:2000] + "\n... (output truncated)"
+                                    out_text += "\n" + run_res.stderr.strip()
+                                if not out_text:
+                                    out_text = "(Command executed successfully, no output)"
+                                if len(out_text) > 2000:
+                                    out_text = out_text[:2000] + "\n... (output truncated)"
                             except Exception as e:
-                                output = f"Error executing bash command: {e}"
-                        
+                                out_text = f"Error executing bash command: {e}"
+                                
+                            combined_output += f"\n$ {cmd}\n{out_text}\n"
+                            
+                            if append_msg_cb:
+                                esc_cmd = cmd.replace('<', '&lt;').replace('>', '&gt;')
+                                esc_out = out_text.replace('<', '&lt;').replace('>', '&gt;')
+                                html_block = f"""
+<details class="mb-2 bg-slate-900 rounded-lg overflow-hidden border border-slate-700 shadow-sm text-left group">
+  <summary class="px-3 py-2 text-[10px] uppercase font-bold text-slate-400 cursor-pointer hover:bg-slate-800 flex items-center gap-2 transition-colors">
+    <span class="text-emerald-400 group-open:text-emerald-300">⚡ System Tool</span>
+    <span class="text-slate-500 lowercase normal-case truncate max-w-[200px] group-open:hidden">{esc_cmd[:40]}...</span>
+    <span class="ml-auto text-[10px] text-slate-600 group-open:rotate-180 transition-transform">▼</span>
+  </summary>
+  <div class="p-3 text-[11px] font-mono text-slate-300 overflow-x-auto border-t border-slate-700 max-h-[300px] overflow-y-auto bg-black">
+    <div class="text-indigo-400 mb-2 whitespace-pre-wrap">$ {esc_cmd}</div>
+    <div class="text-slate-400 whitespace-pre-wrap">{esc_out}</div>
+  </div>
+</details>
+"""
+                                append_msg_cb("assistant", html_block, {"html": True})
+
+                        if has_executed:
                             current_history.append(_LoopMsg("assistant", json.dumps(data)))
-                            current_history.append(_LoopMsg("user", f"Bash command executed. Output:\n{output}"))
-                            loop_prompt = "Based on the command output above, please provide the final answer to my original question."
+                            current_history.append(_LoopMsg("user", f"Bash commands executed. Outputs:\n{combined_output}"))
+                            loop_prompt = "Based on the command output above, please provide the final answer to my original question. REMEMBER: You MUST output STRICT JSON using one of the intent types (e.g. {\"type\": \"chat\", \"reply\": \"...\"})."
                             continue
                 
                     # Pasang metadata proposal card jika LLM memicu CLI tool
@@ -962,7 +992,8 @@ def parse_prompt_to_plan_or_chat(
     model: str = DEFAULT_MODEL,
     intent: str = "auto",
     timeout: int = DEFAULT_TIMEOUT,
-    history: list = None
+    history: list = None,
+    append_msg_cb = None
 ) -> Dict[str, Any]:
     from app.core.config_store import load_settings
 
@@ -993,7 +1024,8 @@ def parse_prompt_to_plan_or_chat(
         intent=intent,
         timeout=timeout,
         err_container=err_container,
-        history=history
+        history=history,
+        append_msg_cb=append_msg_cb
     )
 
     # Add model info to result
