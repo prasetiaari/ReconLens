@@ -212,6 +212,10 @@ def _call_ollama(
     else:
         system_msg = "You are a helpful AI."
         fmt = None
+        
+    # Inject timestamp to bypass API/proxy caches
+    from datetime import datetime
+    system_msg += f"\n\n[System Time: {datetime.now().isoformat()}]"
 
     # Slice history based on settings context size
     sliced_history = []
@@ -587,6 +591,8 @@ def _strip_code_fence(s: str) -> str:
     s = s.strip()
     if s.startswith("```"):
         s = s.strip("`")
+        if s.startswith("json"):
+            s = s[4:]
         m = re.search(r"[\{\[]", s)
         if m:
             s = s[m.start():]
@@ -678,7 +684,10 @@ LLM_SYSTEM_MSG = (
     "- 'urlfinder': Runs active JS/HTML crawler for URL extraction (args: {'target': '<scope>'}).\n\n"
     "CRITICAL RULE:\n"
     "1) If the user asks to analyze, count, or summarize ALREADY found URLs/findings, you MUST use the 'bash' tool with 'type':'actions'. Write a bash command (like grep, awk, wc -l) to extract the requested information. Do NOT use recon tools (gau, waymore, urlfinder, subfinder) unless the user explicitly wants to find NEW data.\n"
-    "2) You are running as ROOT inside a Linux Docker container. If the user asks about the OS, environment, or requests package installations (like ping, nmap, etc.), you MUST use the 'bash' tool (e.g. uname -a, cat /etc/os-release, apt-get update && apt-get install -y <pkg>) with 'type':'actions' instead of replying directly.\n\n"
+    "2) You are running as ROOT inside a Linux Docker container. If the user asks about the OS, environment, or requests package installations (like ping, nmap, etc.), you MUST use the 'bash' tool (e.g. uname -a, cat /etc/os-release, apt-get update && apt-get install -y <pkg>) with 'type':'actions' instead of replying directly.\n"
+    "3) If you are generating/writing a custom Python, Bash, or any other executable script, you MUST save it inside a 'scripts/' subdirectory to keep the workspace clean (e.g., 'mkdir -p scripts && echo \"...\" > scripts/myscript.py').\n"
+    "4) If the user asks you to save the output of a command or script, or if the script produces a large dataset that needs to be stored, ALWAYS redirect the output to a file inside the 'raw/' subdirectory (e.g., 'python3 scripts/myscript.py > raw/myscript_output.txt').\n"
+    "5) If the user asks you to analyze the result of a recent scan, tool (e.g., nmap), background job, or custom bash command, DO NOT ask the user for the file name. You MUST proactively use the 'bash' tool (with 'type':'actions') to search the 'raw/' directory (e.g., `ls -lth raw/` or `cat raw/custom_bash-*`) to find the latest output files and read them.\n\n"
     "Keep answers in user's language. STRICT JSON ONLY."
 )
 
@@ -814,7 +823,19 @@ def _parse_prompt_to_plan_or_chat_inner(
             self.content = content
 
     current_history = list(history) if history else []
-    loop_prompt = f"[scope:{scope}][intent:{intent}] {p}"
+    
+    # Inject recent raw files to give AI context about newly completed background jobs
+    recent_files = ""
+    raw_dir = Path(f"outputs/{scope}/raw")
+    if raw_dir.exists():
+        try:
+            files = sorted(raw_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:5]
+            if files:
+                recent_files = "\n\n[System Hint] If the user asks to analyze recent outputs or scans, the latest files are:\n" + "\n".join([f"- raw/{f.name}" for f in files]) + "\n(Do NOT delete these files unless explicitly asked to delete files)."
+        except Exception:
+            pass
+
+    loop_prompt = f"[scope:{scope}][intent:{intent}] {p}{recent_files}"
     
     for turn in range(3):
         try:
@@ -847,7 +868,23 @@ def _parse_prompt_to_plan_or_chat_inner(
                 
                     # Check for agentic background bash tool
                     is_all_bash = acts and all(a.get("tool", "").lower() == "bash" for a in acts)
-                    if t in ("actions", "confirm") and is_all_bash:
+                    
+                    if t == "confirm" and is_all_bash:
+                        import base64
+                        combined_cmd = " && ".join(filter(None, [a.get("args", {}).get("command") for a in acts]))
+                        encoded_cmd = base64.b64encode(combined_cmd.encode('utf-8')).decode('utf-8')
+                        data["meta"] = {
+                            "kind": "proposal_bash",
+                            "tool": "custom_bash",
+                            "tool_upper": "BASH",
+                            "tool_name": "Custom Bash Shell",
+                            "query_params": f"?cmd_b64={encoded_cmd}",
+                            "raw_cmd": combined_cmd
+                        }
+                        reply = data.get("summary") or data.get("reply") or "Anda ingin menjalankan perintah Bash custom. Silakan tinjau dan jalankan di konsol."
+                        return {"type": "chat", "reply": reply, "meta": data.get("meta")}
+
+                    if t == "actions" and is_all_bash:
                         combined_output = ""
                         has_executed = False
                         
@@ -967,6 +1004,11 @@ def _parse_prompt_to_plan_or_chat_inner(
                     "meta": data.get("meta")
                 }
         except Exception as e:
+            if "Connection refused" in str(e) or "Max retries exceeded" in str(e):
+                return {
+                    "type": "chat",
+                    "reply": "⚠️ Maaf Bro, sepertinya ada gangguan jaringan saat mencoba terhubung ke API AI (Connection Refused). Mungkin koneksi internet sedang putus-nyambung atau diblokir oleh sistem/firewall Anda. Silakan coba lagi sebentar lagi!"
+                }
             if err_container is not None:
                 err_msg = f"{type(e).__name__}: {str(e)}"
                 if hasattr(e, "response") and e.response is not None:

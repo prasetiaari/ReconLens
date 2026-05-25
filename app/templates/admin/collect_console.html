@@ -24,7 +24,7 @@
 
   <!-- Command hint -->
   <div class="text-sm font-medium mb-1">Command (hint):</div>
-  <textarea class="input w-full font-mono text-[13px]" rows="3" readonly>
+  <textarea id="cmdHint" class="input w-full font-mono text-[13px]" rows="3" readonly>
 {% if tool == 'gau' -%}
     gau --verbose --o  outputs/{{ scope }}/urls.txt {{ scope }}
 {%- elif tool == 'waymore' -%}
@@ -127,6 +127,7 @@
   const tool       = {{ tool|tojson }};
   const moduleName = {{ module|tojson }};
   const hostParam  = {{ (host or "")|tojson }};
+  const cmdB64     = {{ (cmd_b64 or "")|tojson }};
 
   const runBtn     = document.getElementById('runBtn');
   const cancelBtn  = document.getElementById('cancelBtn');
@@ -141,6 +142,14 @@
   let currentJob = null;
   let timer = null;
   let startedAt = 0;
+
+  if (tool === 'custom_bash' && cmdB64) {
+    try {
+      document.getElementById('cmdHint').value = atob(cmdB64);
+    } catch(e) {
+      document.getElementById('cmdHint').value = "# error decoding command";
+    }
+  }
 
   function normalizeToolForAPI(t){
     return (t === 'rebuild') ? 'build' : t;
@@ -159,6 +168,9 @@
     }
     if (t === 'dirsearch' && hostParam) {
       u.searchParams.set('host', hostParam);
+    }
+    if (t === 'custom_bash' && cmdB64) {
+      u.searchParams.set('cmd_b64', cmdB64);
     }
     if ((kind === 'stream' || kind === 'cancel') && jobId) {
       u.searchParams.set('job', jobId);

@@ -142,7 +142,7 @@ def _load_job_from_disk(job_id: str) -> dict | None:
 
 
 def _new_job(scope: str, tool: str, module: str | None = None,
-             host: str | None = None, wordlists: str | None = None) -> str:
+             host: str | None = None, wordlists: str | None = None, custom_cmd: str | None = None) -> str:
     """Create a new job entry and initialize its async queue with history recording."""
     jid = os.urandom(12).hex()
     info = {
@@ -155,6 +155,7 @@ def _new_job(scope: str, tool: str, module: str | None = None,
         "module": module,
         "host": host,
         "wordlists": wordlists,
+        "custom_cmd": custom_cmd,
         "pid": None,
     }
     JOBS[jid] = info
@@ -280,6 +281,7 @@ async def _run_job(
             wordlists=job.get("wordlists"),
             settings=settings,
             dirsearch_outfile=dirsearch_outfile,
+            custom_cmd=job.get("custom_cmd"),
         )
 
         # Env & CWD sama seperti “old”
@@ -485,6 +487,7 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
     last_scans = meta.get("last_scans", {})
     wordlist = request.query_params.get("wordlist") or "dicc.txt"
     host = request.query_params.get("host") or ""
+    cmd_b64 = request.query_params.get("cmd_b64") or ""
 
     return templates.TemplateResponse("admin/collect_console.html", {
         "request": request,
@@ -494,6 +497,7 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
         "last_scans": last_scans,
         "host": host,
         "wordlist": wordlist,
+        "cmd_b64": cmd_b64,
     })
 
 
@@ -515,6 +519,16 @@ async def collect_start(scope: str, tool: str, request: Request):
             return JSONResponse({"ok": False, "error": "host not in scope"}, status_code=400)
 
         jid = _new_job(scope, tool, host=normalize_host(host), wordlists=wl_name)
+    elif tool == "custom_bash":
+        cmd_b64 = request.query_params.get("cmd_b64") or ""
+        import base64
+        try:
+            raw_cmd = base64.b64decode(cmd_b64).decode("utf-8")
+        except Exception:
+            raw_cmd = ""
+        if not raw_cmd:
+            return JSONResponse({"ok": False, "error": "missing cmd_b64 parameter"}, status_code=400)
+        jid = _new_job(scope, tool, custom_cmd=raw_cmd)
     else:
         jid = _new_job(scope, tool, module=module, host=host)
 

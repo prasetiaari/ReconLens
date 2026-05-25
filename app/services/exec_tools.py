@@ -149,6 +149,7 @@ def build_tool_cmd(
     wordlists: str | None = None,
     settings: Optional[dict] = None,
     dirsearch_outfile: Optional[Path] = None,
+    custom_cmd: str | None = None,
 ) -> list[str]:
     """
     Build the CLI command for external tools and internal ReconLens modules.
@@ -157,6 +158,11 @@ def build_tool_cmd(
     cfg = _to_cfg(settings)
     py = python_exe()
     out_dir = outputs_root / scope
+
+    # --- Custom Bash ---
+    if tool == "custom_bash" and custom_cmd:
+        # Wrap the custom command in bash -c and run it in the target directory using absolute path
+        return ["/bin/bash", "-c", f"cd {out_dir} && {custom_cmd}"]
 
     # --- URL collectors ---
     if tool == "gau":
