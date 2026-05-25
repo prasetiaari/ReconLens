@@ -960,6 +960,14 @@ def _parse_prompt_to_plan_or_chat_inner(
                     }
 
                 return data
+            else:
+                # If t is not in known intents, treat as chat
+                reply_text = data.get("reply") or data.get("message") or data.get("text") or json.dumps(data)
+                return {
+                    "type": "chat",
+                    "reply": reply_text,
+                    "meta": data.get("meta")
+                }
     except Exception as e:
         if err_container is not None:
             err_container.append(f"{type(e).__name__}: {str(e)}")
