@@ -18,7 +18,7 @@
     </h1>
   </div>
   <p class="text-xs text-slate-500 font-sans leading-relaxed">
-    Kirim instruksi bahasa alami untuk memicu rencana aksi recon otomatis, memindai direktori aktif, atau mendeteksi endpoints berisiko. Rencana aksi terintegrasi langsung dengan persistent background runner.
+    Send natural language instructions to trigger automated recon action plans, scan active directories, or detect risky endpoints. Action plans are integrated directly with the persistent background runner.
   </p>
 </div>
 
@@ -38,7 +38,7 @@
         <input id="new-thread-title" 
                name="title"
                class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-sans focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/50 transition-all placeholder-slate-400" 
-               placeholder="Nama thread baru..."/>
+               placeholder="New thread name..."/>
         <button
           id="btn-new-thread"
           class="w-full py-2 rounded-lg bg-slate-900 hover:bg-black text-white text-xs font-semibold shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
@@ -46,7 +46,7 @@
           hx-include="#new-thread-title"
           hx-swap="none"
           hx-push-url="false">
-          ➕ Buat Thread
+          ➕ Create Thread
         </button>
       </div>
 
@@ -57,7 +57,7 @@
            hx-swap="outerHTML"
            hx-push-url="false"
            class="overflow-y-auto max-h-[40vh] space-y-1">
-        <div class="text-xs text-slate-400 font-sans text-center py-4">Memuat daftar chat...</div>
+        <div class="text-xs text-slate-400 font-sans text-center py-4">Loading chat list...</div>
       </div>
     </div>
   </aside>
@@ -69,23 +69,7 @@
       <!-- Chat Header controls -->
       <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center gap-4 justify-between">
         <div class="flex flex-wrap items-center gap-4">
-          <div class="flex items-center gap-1.5 text-xs text-slate-600 font-sans">
-            <span class="font-medium text-slate-500">Model:</span>
-            <select id="ai-model" class="py-1 px-2.5 rounded-md border border-slate-200 bg-white text-slate-700 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none cursor-pointer">
-              <option value="llama3.2:3b">llama3.2:3b</option>
-              <option value="llama3.1:8b">llama3.1:8b</option>
-              <option value="qwen2.5:3b">qwen2.5:3b</option>
-            </select>
-          </div>
-          <div class="flex items-center gap-1.5 text-xs text-slate-600 font-sans">
-            <span class="font-medium text-slate-500">Mode:</span>
-            <select id="ai-intent" class="py-1 px-2.5 rounded-md border border-slate-200 bg-white text-slate-700 font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none cursor-pointer">
-              <option value="auto" selected>Auto Intent</option>
-              <option value="analyze">Only Analyze</option>
-              <option value="enumerate">Enumerate Only</option>
-              <option value="scan">Scan Ports</option>
-            </select>
-          </div>
+          <!-- Model and Mode dropdowns removed by request -->
         </div>
 
         {% if active_thread %}
@@ -112,11 +96,11 @@
               💬
             </div>
             {% if active_thread %}
-              <div class="text-sm font-semibold text-slate-600">Mulai percakapan Anda</div>
-              <div class="text-xs text-slate-400 mt-1 max-w-xs">Ketik instruksi atau pertanyaan mengenai recon target scope di panel input bawah!</div>
+              <div class="text-sm font-semibold text-slate-600">Start your conversation</div>
+              <div class="text-xs text-slate-400 mt-1 max-w-xs">Type instructions or questions regarding the target scope in the input panel below!</div>
             {% else %}
-              <div class="text-sm font-semibold text-slate-600 font-sans">Belum ada thread terpilih</div>
-              <div class="text-xs text-slate-400 mt-1 max-w-xs font-sans">Silakan buat thread baru di sebelah kiri atau pilih sesi chat yang sudah ada untuk memulai pentesting.</div>
+              <div class="text-sm font-semibold text-slate-600 font-sans">No thread selected</div>
+              <div class="text-xs text-slate-400 mt-1 max-w-xs font-sans">Please create a new thread on the left or select an existing chat session to start pentesting.</div>
             {% endif %}
           </div>
         {% endif %}
@@ -138,7 +122,7 @@
                         id="chat-input"
                         rows="1"
                         class="w-full pl-3.5 pr-10 py-3 rounded-xl border-none focus:ring-0 focus:outline-none resize-none font-sans text-xs text-slate-800 placeholder-slate-400 bg-transparent leading-relaxed"
-                        placeholder="Tulis perintah... (contoh: 'Jalankan dirsearch untuk admin.target' atau 'Cari urls via GAU')"
+                        placeholder="Write a command... (e.g. 'Run dirsearch on admin.target' or 'Find urls via GAU')"
                         required></textarea>
               <button type="submit" 
                       class="absolute right-2 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all active:scale-95 flex items-center justify-center">
@@ -148,24 +132,6 @@
 
             <!-- Action buttons beside composer -->
             <div class="flex items-center gap-1.5 self-center">
-              <button type="button"
-                      id="aiRunBtn"
-                      class="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-semibold shadow-sm transition-all active:scale-[0.98] flex items-center gap-1.5"
-                      hx-post="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}/run"
-                      hx-target="#ai-conversation"
-                      hx-swap="innerHTML"
-                      hx-push-url="false"
-                      title="Run current parsed plan">
-                ⚡ Run
-              </button>
-              <button type="button"
-                      class="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-[0.98] flex items-center gap-1"
-                      hx-get="/targets/{{ scope }}/ai/command/thread/{{ active_thread }}"
-                      hx-target="#ai-conversation"
-                      hx-swap="innerHTML"
-                      hx-push-url="false">
-                🔄 Sync
-              </button>
             </div>
 
             <!-- hidden forms filled prior to submit -->
@@ -174,7 +140,7 @@
           </form>
         {% else %}
           <div class="text-xs text-slate-400 text-center font-sans py-2.5">
-            ⚠️ Silakan buat atau pilih thread percakapan terlebih dahulu untuk menggunakan AI Copilot.
+            ⚠️ Please create or select a conversation thread first to use the AI Copilot.
           </div>
         {% endif %}
       </div>
@@ -189,10 +155,6 @@
 <script>
   // Pass dropdown selections and implement instant UI update (user bubble + thinking animation) on submit
   function handleChatSubmit(form) {
-    const m = document.getElementById('ai-model').value;
-    const i = document.getElementById('ai-intent').value;
-    document.getElementById('ai-model-hidden').value = m;
-    document.getElementById('ai-intent-hidden').value = i;
 
     const input = document.getElementById('chat-input');
     const scrollArea = document.getElementById('messages-scroll-area');

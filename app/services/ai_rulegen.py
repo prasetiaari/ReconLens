@@ -196,22 +196,18 @@ def _call_ollama(
             "Never include wrapper keys like 'results', 'data', or 'summary'. "
             "No markdown, no explanations."
         )
-        fmt = "json"
     elif mode == "command":
-        system_msg = custom_system_prompt or (
-            "You are an AI assistant inside ReconLens.\n"
-            "Decide among four intents and ALWAYS return STRICT JSON (no markdown, no prose):\n"
-            "1) {\"type\":\"chat\",\"reply\":\"...\"}\n"
-            "   Use when user small-talks or asks general questions (date/time, greetings, etc.).\n"
-            "2) {\"type\":\"actions\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n"
-            "   Use when user explicitly confirms to run or the action is clearly safe auto-run.\n"
-            "   SPECIAL TOOL: If you need to find out information to answer the user's question (e.g. counting lines, grepping files), use `{\"tool\":\"bash\", \"args\":{\"command\":\"<shell command>\"}}`. You will receive the output and can reply in the next turn.\n"
-            "3) {\"type\":\"confirm\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n"
-            "   Use when user asks to run a tool (e.g., subdomain, dirsearch, scan) but confirmation is required.\n"
-            "4) {\"type\":\"revise\",\"question\":\"...\"}\n"
-            "   Use if the request is ambiguous and needs clarification.\n"
-            "Keep answers in user's language. STRICT JSON ONLY."
-        )
+        if custom_system_prompt:
+            if "Available Tools:" not in custom_system_prompt:
+                try:
+                    tools_part = LLM_SYSTEM_MSG.split("Available Tools:", 1)[1]
+                    system_msg = custom_system_prompt.strip() + "\n\nAvailable Tools:" + tools_part
+                except Exception:
+                    system_msg = custom_system_prompt
+            else:
+                system_msg = custom_system_prompt
+        else:
+            system_msg = LLM_SYSTEM_MSG
         fmt = "json"
     else:
         system_msg = "You are a helpful AI."
@@ -673,14 +669,16 @@ LLM_SYSTEM_MSG = (
     "4) {\"type\":\"revise\",\"question\":\"...\"}\n"
     "   If the request is highly ambiguous.\n\n"
     "Available Tools:\n"
-    "- 'bash': Use to execute ANY arbitrary Bash/shell command on the target folder (e.g. using grep, wc -l, cat, sort, awk, sed, etc.) to perform customized and deep command-line analysis, search, or triage on files like urls.txt, subdomains.txt, etc. (args: {'command': '<shell command>'}).\n"
-    "- 'analyze': Use to analyze, search (grep), summarize, or get security insights from gathered URLs/findings (args: {'target': '<scope>', 'query': '<prompt>'}).\n"
+    "- 'bash': Use to execute ANY arbitrary Bash/shell command on the target folder (e.g. using grep, wc -l, ping, python scripts, cat, sort, awk, sed, etc.) to perform customized tasks, connectivity checks (ping), script execution, or deep command-line analysis, search, or triage on files like urls.txt, subdomains.txt, etc. (args: {'command': '<shell command>'}).\n"
     "- 'subdomains_alive': Use to list/filter active or alive subdomains (args: {'target': '<scope>'}).\n"
     "- 'subfinder': Runs passive subdomain discovery (args: {'target': '<scope>'}).\n"
     "- 'dirsearch': Runs active directory bruteforcing (args: {'target': '<scope>'}).\n"
     "- 'gau': Runs passive URL discovery via GAU (args: {'target': '<scope>'}).\n"
     "- 'waymore': Runs deep passive Wayback URL discovery (args: {'target': '<scope>'}).\n"
     "- 'urlfinder': Runs active JS/HTML crawler for URL extraction (args: {'target': '<scope>'}).\n\n"
+    "CRITICAL RULE:\n"
+    "1) If the user asks to analyze, count, or summarize ALREADY found URLs/findings, you MUST use the 'bash' tool with 'type':'actions'. Write a bash command (like grep, awk, wc -l) to extract the requested information. Do NOT use recon tools (gau, waymore, urlfinder, subfinder) unless the user explicitly wants to find NEW data.\n"
+    "2) You are running as ROOT inside a Linux Docker container. If the user asks about the OS, environment, or requests package installations (like ping, nmap, etc.), you MUST use the 'bash' tool (e.g. uname -a, cat /etc/os-release, apt-get update && apt-get install -y <pkg>) with 'type':'actions' instead of replying directly.\n\n"
     "Keep answers in user's language. STRICT JSON ONLY."
 )
 
@@ -803,78 +801,7 @@ def _parse_prompt_to_plan_or_chat_inner(
     p = (prompt or "").strip()
     lower = p.lower()
 
-    # Heuristik cepat 1: greetings & small-talk
-    smalltalk = ("halo", "hai", "hello", "hei", "thanks", "terima kasih", "apa kabar")
-    if any(tok in lower for tok in smalltalk):
-        return {"type": "chat", "reply": f"Halo! Siap bantu di scope {scope}. Mau analisa apa?"}
-
-    # Heuristik prioritas B: Tampilkan Subdomain Aktif / Alive
-    if "subdomain" in lower and ("aktif" in lower or "alive" in lower or "200" in lower):
-        return {
-            "type": "actions",
-            "plan": {
-                "summary": "Menyaring dan menampilkan seluruh subdomain aktif (status 200/alive).",
-                "actions": [{"tool": "subdomains_alive", "args": {"target": scope}}]
-            }
-        }
-
-    # Heuristik cepat 2: Operasi matematika dasar (kalkulator instan)
-    math_match = re.search(r"(\d+)\s*([x*+\-\/])\s*(\d+)", lower)
-    if math_match:
-        try:
-            num1 = int(math_match.group(1))
-            op = math_match.group(2)
-            num2 = int(math_match.group(3))
-            if op in ("x", "*"):
-                res_val = num1 * num2
-                op_sign = "x"
-            elif op == "+":
-                res_val = num1 + num2
-                op_sign = "+"
-            elif op == "-":
-                res_val = num1 - num2
-                op_sign = "-"
-            elif op == "/":
-                res_val = num1 / num2 if num2 != 0 else "Infinity"
-                op_sign = "/"
-            return {
-                "type": "chat",
-                "reply": f"Hasil kalkulasi dari **{num1} {op_sign} {num2}** adalah **{res_val}**, bro!"
-            }
-        except Exception:
-            pass
-
-
-
-    # Bypass cepat jika mengandung intent pembuatan/penulisan berkas/script
-    has_creation_intent = any(w in lower for w in ["buat", "bikin", "create", "save", "tulis", "write", "generate", "susun"])
-
-    # Heuristik cepat 4: Ping / Tes konektivitas (hanya jika bukan intent membuat script)
-    if not has_creation_intent:
-        ping_match = re.search(r"ping\s+(?:ke\s+)?([a-zA-Z0-9.\-_:]+)", lower)
-        if ping_match:
-            host_to_ping = ping_match.group(1).strip()
-            return {
-                "type": "actions",
-                "plan": {
-                    "summary": f"Melakukan konektivitas ping ke {host_to_ping}.",
-                    "actions": [{"tool": "ping", "args": {"host": host_to_ping}}]
-                }
-            }
-
-    # Heuristik cepat 5: Jalankan Script (hanya jika bukan intent membuat script)
-    if not has_creation_intent:
-        script_match = re.search(r"(?:jalankan|run|execute)\s+script\s+([a-zA-Z0-9.\-_:]+)(?:\s+(.*))?", lower)
-        if script_match:
-            script_file = script_match.group(1).strip()
-            script_args = script_match.group(2).strip() if script_match.group(2) else ""
-            return {
-                "type": "actions",
-                "plan": {
-                    "summary": f"Menjalankan script {script_file} dari folder khusus target.",
-                    "actions": [{"tool": "execute_script", "args": {"filename": script_file, "args": script_args}}]
-                }
-            }
+    # removed heuristic bypasses to rely on agentic loop
 
     # Coba LLM mode "command"
     resp = None
@@ -1025,112 +952,7 @@ def _parse_prompt_to_plan_or_chat_inner(
                 return {"type": "chat", "reply": resp}
             break
 
-    # Fallback logika ringan (Heuristik)
-    lower = p.lower()
-
-    # 0. Keyword search / Grep in target files
-    if any(k in lower for k in ["apakah ada", "cari string", "temukan string", "mengandung string", "mengandung kata", "grep"]):
-        if "string" in lower or '"' in p or "'" in p or any(k in lower for k in ["employer", "admin", "config", "api", "v1", "git", "env", "login"]):
-            return {
-                "type": "actions",
-                "plan": {
-                    "summary": f"Pencarian kata kunci dalam file temuan target.",
-                    "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
-                }
-            }
-    
-    # 1. Dirsearch
-    if any(k in lower for k in ["dirsearch", "dir search", "directory search", "scan dir"]):
-        host_match = re.search(r"([a-z0-9]+(?:[\-._][a-z0-9]+)*\.[a-z]{2,5})", p.lower())
-        target_host = host_match.group(1) if host_match else scope
-        return {
-            "type": "chat",
-            "reply": f"Saya mendeteksi Anda ingin melakukan Directory Bruteforcing menggunakan **Dirsearch** untuk target `{target_host}`.",
-            "meta": {
-                "kind": "proposal",
-                "tool": "dirsearch",
-                "tool_upper": "DIRSEARCH",
-                "tool_name": "Dirsearch",
-                "query_params": f"?host={target_host}",
-                "target_host": target_host
-            }
-        }
-    
-    # 2. GAU
-    if any(k in lower for k in ["gau", "getallurls", "all urls", "semua url"]):
-        return {
-            "type": "chat",
-            "reply": f"Saya mendeteksi Anda ingin mengumpulkan URL arsip menggunakan **GAU (GetAllUrls)** untuk domain `{scope}`.",
-            "meta": {
-                "kind": "proposal",
-                "tool": "gau",
-                "tool_upper": "GAU",
-                "tool_name": "GAU (GetAllUrls)",
-                "query_params": ""
-            }
-        }
-        
-    # 3. Waymore
-    if any(k in lower for k in ["waymore", "way back", "wayback"]):
-        return {
-            "type": "chat",
-            "reply": f"Saya mendeteksi Anda ingin melakukan ekstraksi URL Wayback mendalam menggunakan **Waymore** untuk domain `{scope}`.",
-            "meta": {
-                "kind": "proposal",
-                "tool": "waymore",
-                "tool_upper": "WAYMORE",
-                "tool_name": "Waymore",
-                "query_params": ""
-            }
-        }
-        
-    # 4. URLFinder
-    if any(k in lower for k in ["urlfinder", "url finder", "ekstrak url", "js link"]):
-        return {
-            "type": "chat",
-            "reply": f"Saya mendeteksi Anda ingin memindai file JS dan mengekstrak endpoints menggunakan **URLFinder** untuk domain `{scope}`.",
-            "meta": {
-                "kind": "proposal",
-                "tool": "urlfinder",
-                "tool_upper": "URLFINDER",
-                "tool_name": "URLFinder",
-                "query_params": ""
-            }
-        }
-        
-    # 5. Subfinder
-    if any(k in lower for k in ["subfinder", "subdomain finder", "cari subdomain"]):
-        return {
-            "type": "chat",
-            "reply": f"Saya mendeteksi Anda ingin melakukan pencarian subdomain pasif menggunakan **Subfinder** untuk domain `{scope}`.",
-            "meta": {
-                "kind": "proposal",
-                "tool": "subfinder",
-                "tool_upper": "SUBFINDER",
-                "tool_name": "Subfinder",
-                "query_params": ""
-            }
-        }
-
-    # Default fallback plans
-    if "subdomain" in lower and ("aktif" in lower or "alive" in lower or "200" in lower):
-        return {
-            "type": "actions",
-            "plan": {
-                "summary": "Menampilkan seluruh subdomain aktif.",
-                "actions": [{"tool": "subdomains_alive", "args": {"target": scope}}]
-            }
-        }
-    if any(k in lower for k in ["insight", "ringkas", "summary", "analisa", "analyze"]):
-        return {
-            "type": "actions",
-            "plan": {
-                "summary": "Analisa temuan saat ini.",
-                "actions": [{"tool": "analyze", "args": {"target": scope, "query": p}}]
-            }
-        }
-
-    return {"type": "chat", "reply": "Catat, bro. Saya siap meluncurkan tools pemindaian pasif maupun aktif. Silakan ketik perintah seperti 'Jalankan dirsearch' atau 'Cari archive urls via GAU'!"}
+    return {"type": "chat", "reply": "Maaf bro, saya kesulitan memproses instruksi ini. Coba sampaikan dengan lebih spesifik."}
 
 
 def parse_prompt_to_plan_or_chat(

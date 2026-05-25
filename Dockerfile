@@ -40,13 +40,13 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install runtime system dependencies (e.g., git for dirsearch/waymore, curl, wget, ca-certificates, procps)
+# Install runtime system dependencies (e.g., git for dirsearch/waymore, curl, wget, ca-certificates, procps iputils-ping)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
     ca-certificates \
-    procps \
+    procps iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled Go binaries from the builder stage
