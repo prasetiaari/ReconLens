@@ -707,8 +707,9 @@ def _extract_first_json_block(s: str):
             try:
                 return json.loads(cand[:end])
             except Exception:
-                pass
-        raise ValueError("Failed to parse JSON block")
+        if isinstance(raw, dict):
+            return raw
+        return {"type": "chat", "reply": str(raw) if raw else "Failed to parse JSON block"}
 
 
 def _ollama_json_router(prompt: str, model: str = DEFAULT_MODEL, temperature: float = 0.0, timeout: int = DEFAULT_TIMEOUT) -> dict:
