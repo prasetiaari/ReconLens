@@ -205,6 +205,7 @@ def _call_ollama(
             "   Use when user small-talks or asks general questions (date/time, greetings, etc.).\n"
             "2) {\"type\":\"actions\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n"
             "   Use when user explicitly confirms to run or the action is clearly safe auto-run.\n"
+            "   SPECIAL TOOL: If you need to find out information to answer the user's question (e.g. counting lines, grepping files), use `{\"tool\":\"bash\", \"args\":{\"command\":\"<shell command>\"}}`. You will receive the output and can reply in the next turn.\n"
             "3) {\"type\":\"confirm\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n"
             "   Use when user asks to run a tool (e.g., subdomain, dirsearch, scan) but confirmation is required.\n"
             "4) {\"type\":\"revise\",\"question\":\"...\"}\n"
@@ -877,114 +878,152 @@ def _parse_prompt_to_plan_or_chat_inner(
 
     # Coba LLM mode "command"
     resp = None
-    try:
-        resp = _call_ollama(
-            prompt=f"[scope:{scope}][intent:{intent}] {p}",
-            model=model,
-            timeout=timeout,
-            temperature=0.3,
-            mode="command",
-            history=history,
-        )
-        print(f"[debug-llm] raw response: {resp}", flush=True)
-        data = _json_loads_loose(resp)
-        if not isinstance(data, dict) or "type" not in data:
-            raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")
+    import subprocess
+
+    class _LoopMsg:
+        def __init__(self, role, content):
+            self.role = role
+            self.content = content
+
+    current_history = list(history) if history else []
+    loop_prompt = f"[scope:{scope}][intent:{intent}] {p}"
+    
+    for turn in range(3):
+        try:
+            resp = _call_ollama(
+                prompt=loop_prompt,
+                model=model,
+                timeout=timeout,
+                temperature=0.3,
+                mode="command",
+                history=current_history,
+            )
+            print(f"[debug-llm] turn {turn} raw response: {resp}", flush=True)
+            data = _json_loads_loose(resp)
+            if not isinstance(data, dict) or "type" not in data:
+                raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")
         
-        t = str(data.get("type") or "").lower()
-        if t in ("chat", "actions", "confirm", "revise"):
-                acts = data.get("actions")
-                if acts is not None and not isinstance(acts, list):
-                    acts = [acts]
-                    data["actions"] = acts
-                if isinstance(acts, list):
-                    for a in acts:
-                        if "args" not in a or a["args"] is None:
-                            a["args"] = {}
-                if isinstance(acts, list):
-                    for a in acts:
-                        a["args"].setdefault("target", scope)
+            t = str(data.get("type") or "").lower()
+            if t in ("chat", "actions", "confirm", "revise"):
+                    acts = data.get("actions")
+                    if acts is not None and not isinstance(acts, list):
+                        acts = [acts]
+                        data["actions"] = acts
+                    if isinstance(acts, list):
+                        for a in acts:
+                            if "args" not in a or a["args"] is None:
+                                a["args"] = {}
+                    if isinstance(acts, list):
+                        for a in acts:
+                            a["args"].setdefault("target", scope)
                 
-                # Pasang metadata proposal card jika LLM memicu CLI tool
-                for a in (acts or []):
-                    tool = str(a.get("tool") or "").lower()
-                    if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder", "subdomains_alive"):
-                        target_host = a.get("args", {}).get("host") or a.get("args", {}).get("target") or scope
-                        query_params = f"?host={target_host}" if tool == "dirsearch" else ""
-                        tool_map = {
-                            "gau": ("GAU", "GAU (GetAllUrls)"),
-                            "waymore": ("WAYMORE", "Waymore"),
-                            "urlfinder": ("URLFINDER", "URLFinder"),
-                            "dirsearch": ("DIRSEARCH", "Dirsearch"),
-                            "subfinder": ("SUBFINDER", "Subfinder"),
-                            "subdomains_alive": ("SUBFINDER", "Subfinder")
-                        }
-                        tool_info = tool_map.get(tool, (tool.upper(), tool.capitalize()))
-                        data["meta"] = {
-                            "kind": "proposal",
-                            "tool": "subfinder" if tool == "subdomains_alive" else tool,
-                            "tool_upper": tool_info[0],
-                            "tool_name": tool_info[1],
-                            "query_params": query_params,
-                            "target_host": target_host
-                        }
-                        break
-
-                if t in ("actions", "confirm"):
-                    if not acts:
-                        reply = data.get("summary") or data.get("reply") or "Saya siap membantu melakukan analisis pasif maupun aktif. Silakan pilih tool pemindaian yang ingin dijalankan!"
-                        return {"type": "chat", "reply": reply, "meta": data.get("meta")}
-
-                    # Detect if any tool in acts is a background CLI tool
-                    is_cli = False
-                    cli_tool_name = "Recon tool"
-                    for a in acts:
+                    # Check for agentic background bash tool
+                    if t in ("actions", "confirm") and acts and len(acts) == 1 and acts[0].get("tool", "").lower() == "bash":
+                        cmd = acts[0].get("args", {}).get("command")
+                        if cmd:
+                            try:
+                                cwd = f"outputs/{scope}"
+                                if not os.path.exists(cwd):
+                                    os.makedirs(cwd, exist_ok=True)
+                            
+                                # Limit output to avoid context window explosion
+                                run_res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=15)
+                                output = run_res.stdout.strip()
+                                if run_res.stderr:
+                                    output += "\n" + run_res.stderr.strip()
+                                if not output:
+                                    output = "(Command executed successfully, no output)"
+                                if len(output) > 2000:
+                                    output = output[:2000] + "\n... (output truncated)"
+                            except Exception as e:
+                                output = f"Error executing bash command: {e}"
+                        
+                            current_history.append(_LoopMsg("assistant", json.dumps(data)))
+                            current_history.append(_LoopMsg("user", f"Bash command executed. Output:\n{output}"))
+                            loop_prompt = "Based on the command output above, please provide the final answer to my original question."
+                            continue
+                
+                    # Pasang metadata proposal card jika LLM memicu CLI tool
+                    for a in (acts or []):
                         tool = str(a.get("tool") or "").lower()
-                        if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder"):
-                            is_cli = True
-                            cli_tool_name = tool.upper()
+                        if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder", "subdomains_alive"):
+                            target_host = a.get("args", {}).get("host") or a.get("args", {}).get("target") or scope
+                            query_params = f"?host={target_host}" if tool == "dirsearch" else ""
+                            tool_map = {
+                                "gau": ("GAU", "GAU (GetAllUrls)"),
+                                "waymore": ("WAYMORE", "Waymore"),
+                                "urlfinder": ("URLFINDER", "URLFinder"),
+                                "dirsearch": ("DIRSEARCH", "Dirsearch"),
+                                "subfinder": ("SUBFINDER", "Subfinder"),
+                                "subdomains_alive": ("SUBFINDER", "Subfinder")
+                            }
+                            tool_info = tool_map.get(tool, (tool.upper(), tool.capitalize()))
+                            data["meta"] = {
+                                "kind": "proposal",
+                                "tool": "subfinder" if tool == "subdomains_alive" else tool,
+                                "tool_upper": tool_info[0],
+                                "tool_name": tool_info[1],
+                                "query_params": query_params,
+                                "target_host": target_host
+                            }
                             break
 
-                    if is_cli:
-                        reply = data.get("summary") or data.get("reply") or f"Saya mendeteksi Anda ingin menjalankan pemindaian menggunakan **{cli_tool_name}**. Silakan klik tombol di bawah ini untuk meluncurkannya di CLI Runner Console!"
+                    if t in ("actions", "confirm"):
+                        if not acts:
+                            reply = data.get("summary") or data.get("reply") or "Saya siap membantu melakukan analisis pasif maupun aktif. Silakan pilih tool pemindaian yang ingin dijalankan!"
+                            return {"type": "chat", "reply": reply, "meta": data.get("meta")}
+
+                        # Detect if any tool in acts is a background CLI tool
+                        is_cli = False
+                        cli_tool_name = "Recon tool"
+                        for a in acts:
+                            tool = str(a.get("tool") or "").lower()
+                            if tool in ("gau", "waymore", "urlfinder", "dirsearch", "subfinder"):
+                                is_cli = True
+                                cli_tool_name = tool.upper()
+                                break
+
+                        if is_cli:
+                            reply = data.get("summary") or data.get("reply") or f"Saya mendeteksi Anda ingin menjalankan pemindaian menggunakan **{cli_tool_name}**. Silakan klik tombol di bawah ini untuk meluncurkannya di CLI Runner Console!"
+                            return {
+                                "type": "chat",
+                                "reply": reply,
+                                "meta": data.get("meta")
+                            }
+
                         return {
-                            "type": "chat",
-                            "reply": reply,
+                            "type": "actions",
+                            "plan": {
+                                "summary": data.get("summary") or data.get("reply") or "Rencana aksi otomatis.",
+                                "actions": acts
+                            },
                             "meta": data.get("meta")
                         }
 
-                    return {
-                        "type": "actions",
-                        "plan": {
-                            "summary": data.get("summary") or data.get("reply") or "Rencana aksi otomatis.",
-                            "actions": acts
-                        },
-                        "meta": data.get("meta")
-                    }
-
-                return data
-        else:
-            # If t is not in known intents, treat as chat
-            reply_text = data.get("reply") or data.get("message") or data.get("text") or json.dumps(data)
-            return {
-                "type": "chat",
-                "reply": reply_text,
-                "meta": data.get("meta")
-            }
-    except Exception as e:
-        if err_container is not None:
-            err_msg = f"{type(e).__name__}: {str(e)}"
-            if hasattr(e, "response") and e.response is not None:
-                try:
-                    err_msg += f" - Response: {e.response.text}"
-                except:
-                    pass
-            err_container.append(err_msg)
-        print(f"[rulegen] Fallback: {e}")
-        # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
-        # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
-        if resp and len(resp.strip()) > 5:
-            return {"type": "chat", "reply": resp}
+                    return data
+            else:
+                # If t is not in known intents, treat as chat
+                reply_text = data.get("reply") or data.get("message") or data.get("text") or json.dumps(data)
+                return {
+                    "type": "chat",
+                    "reply": reply_text,
+                    "meta": data.get("meta")
+                }
+        except Exception as e:
+            if err_container is not None:
+                err_msg = f"{type(e).__name__}: {str(e)}"
+                if hasattr(e, "response") and e.response is not None:
+                    try:
+                        err_msg += f" - Response: {e.response.text}"
+                    except:
+                        pass
+                err_container.append(err_msg)
+            print(f"[rulegen] Fallback: {e}")
+            # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
+            # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
+            if resp and len(resp.strip()) > 5:
+                return {"type": "chat", "reply": resp}
+            break
 
     # Fallback logika ringan (Heuristik)
     lower = p.lower()
