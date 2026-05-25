@@ -251,8 +251,11 @@ def _call_ollama(
         payload = {
             "model": cloud_model,
             "messages": messages_payload,
-            "temperature": max(0.0, min(float(temperature), 1.0)),
         }
+        
+        # Reasoning models (o1, o3, gpt-5-nano) often reject 'temperature' parameter
+        if not (cloud_model.startswith("o1") or cloud_model.startswith("o3") or "gpt-5-nano" in cloud_model):
+            payload["temperature"] = max(0.0, min(float(temperature), 1.0))
 
         # We don't force response_format to avoid incompatibilities with LM Studio/LocalAI/vLLM
         # if fmt == "json":
@@ -970,7 +973,13 @@ def _parse_prompt_to_plan_or_chat_inner(
             }
     except Exception as e:
         if err_container is not None:
-            err_container.append(f"{type(e).__name__}: {str(e)}")
+            err_msg = f"{type(e).__name__}: {str(e)}"
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    err_msg += f" - Response: {e.response.text}"
+                except:
+                    pass
+            err_container.append(err_msg)
         print(f"[rulegen] Fallback: {e}")
         # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
         # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
