@@ -849,8 +849,14 @@ def _parse_prompt_to_plan_or_chat_inner(
             )
             print(f"[debug-llm] turn {turn} raw response: {resp}", flush=True)
             data = _json_loads_loose(resp)
-            if not isinstance(data, dict) or "type" not in data:
-                raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")
+            if not isinstance(data, dict):
+                raise ValueError("LLM response did not contain a valid JSON object.")
+            if "type" not in data:
+                # If no strict type but looks like a chat response, assign chat type
+                if "reply" in data or "summary" in data or "message" in data:
+                    data["type"] = "chat"
+                else:
+                    raise ValueError("LLM response did not contain a valid JSON object with a 'type' key.")
         
             t = str(data.get("type") or "").lower()
             if t in ("chat", "actions", "confirm", "revise"):
