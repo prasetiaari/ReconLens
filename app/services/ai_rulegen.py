@@ -668,26 +668,45 @@ LLM_SYSTEM_MSG = (
     "Based on the user prompt, decide among these 4 intents and return STRICT JSON ONLY:\n"
     "1) {\"type\":\"chat\",\"reply\":\"...\"}\n"
     "   For greetings, small-talk, or questions about capabilities.\n"
-    "2) {\"type\":\"actions\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n"
+    "2) {\"type\":\"actions\",\"summary\":\"...\",\"reasoning\":\"...\",\"steps\":[\"step 1\",\"step 2\"],\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":false}\n"
     "   For safe actions or when the user explicitly confirms to run an action.\n"
-    "3) {\"type\":\"confirm\",\"summary\":\"...\",\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n"
+    "3) {\"type\":\"confirm\",\"summary\":\"...\",\"reasoning\":\"...\",\"steps\":[\"step 1\",\"step 2\"],\"actions\":[{\"tool\":\"...\",\"args\":{}}],\"needs_confirmation\":true}\n"
     "   For active recon/scanning tasks that require user approval.\n"
     "4) {\"type\":\"revise\",\"question\":\"...\"}\n"
     "   If the request is highly ambiguous.\n\n"
     "Available Tools:\n"
-    "- 'bash': Use to execute ANY arbitrary Bash/shell command on the target folder (e.g. using grep, wc -l, ping, python scripts, cat, sort, awk, sed, etc.) to perform customized tasks, connectivity checks (ping), script execution, or deep command-line analysis, search, or triage on files like urls.txt, subdomains.txt, etc. (args: {'command': '<shell command>'}).\n"
-    "- 'subdomains_alive': Use to list/filter active or alive subdomains (args: {'target': '<scope>'}).\n"
-    "- 'subfinder': Runs passive subdomain discovery (args: {'target': '<scope>'}).\n"
-    "- 'dirsearch': Runs active directory bruteforcing (args: {'target': '<scope>'}).\n"
-    "- 'gau': Runs passive URL discovery via GAU (args: {'target': '<scope>'}).\n"
-    "- 'waymore': Runs deep passive Wayback URL discovery (args: {'target': '<scope>'}).\n"
-    "- 'urlfinder': Runs active JS/HTML crawler for URL extraction (args: {'target': '<scope>'}).\n\n"
-    "CRITICAL RULE:\n"
-    "1) If the user asks to analyze, count, or summarize ALREADY found URLs/findings, you MUST use the 'bash' tool with 'type':'actions'. Write a bash command (like grep, awk, wc -l) to extract the requested information. Do NOT use recon tools (gau, waymore, urlfinder, subfinder) unless the user explicitly wants to find NEW data.\n"
-    "2) You are running as ROOT inside a Linux Docker container. If the user asks about the OS, environment, or requests package installations (like ping, nmap, etc.), you MUST use the 'bash' tool (e.g. uname -a, cat /etc/os-release, apt-get update && apt-get install -y <pkg>) with 'type':'actions' instead of replying directly.\n"
-    "3) If you are generating/writing a custom Python, Bash, or any other executable script, you MUST save it inside a 'scripts/' subdirectory to keep the workspace clean (e.g., 'mkdir -p scripts && echo \"...\" > scripts/myscript.py').\n"
-    "4) If the user asks you to save the output of a command or script, or if the script produces a large dataset that needs to be stored, ALWAYS redirect the output to a file inside the 'raw/' subdirectory (e.g., 'python3 scripts/myscript.py > raw/myscript_output.txt').\n"
-    "5) If the user asks you to analyze the result of a recent scan, tool (e.g., nmap), background job, or custom bash command, DO NOT ask the user for the file name. You MUST proactively use the 'bash' tool (with 'type':'actions') to search the 'raw/' directory (e.g., `ls -lth raw/` or `cat raw/custom_bash-*`) to find the latest output files and read them.\n\n"
+    "- 'bash': Execute ANY Bash/shell command (grep, wc -l, cat, sort, awk, sed, ping, etc.) for analysis or file operations. (args: {'command': '<shell command>'})\n"
+    "- 'subdomains_alive': List/filter active subdomains. (args: {'target': '<scope>'})\n"
+    "- 'subfinder': Passive subdomain discovery. (args: {'target': '<scope>'})\n"
+    "- 'dirsearch': Active directory bruteforcing. (args: {'target': '<scope>'})\n"
+    "- 'gau': Passive URL discovery via GAU. (args: {'target': '<scope>'})\n"
+    "- 'waymore': Deep passive Wayback URL discovery. (args: {'target': '<scope>'})\n"
+    "- 'urlfinder': Active JS/HTML crawler for URL extraction. (args: {'target': '<scope>'})\n\n"
+    "=== CRITICAL RULES ===\n\n"
+    "RULE 1 — FILE SELECTION (MOST IMPORTANT):\n"
+    "  The workspace has TWO data stores:\n"
+    "  a) 'urls.txt' — The MASTER URL database. ALWAYS use this for URL searches & analysis.\n"
+    "     Correct: {\"tool\":\"bash\",\"args\":{\"command\":\"cat urls.txt | grep -i 'login' | grep -i 'admin' | head -n 50\"}}\n"
+    "  b) 'raw/' folder — Raw scan outputs. File names: <tool>-<YYYYMMDD>-<HHMMSS>.urls\n"
+    "     WARNING: Files in raw/ may NOT contain URLs (e.g. 'custom_bash-*.urls' may be Nmap port scan output!).\n"
+    "     NEVER grep raw/ files for URLs. ALWAYS use 'cat urls.txt | grep ...' instead.\n\n"
+    "RULE 2 — CORRECT BASH PATTERNS:\n"
+    "  - Find URLs with keyword:   cat urls.txt | grep -i '<keyword>' | head -n 50\n"
+    "  - Find admin login pages:   cat urls.txt | grep -i 'admin' | grep -i 'login' | head -n 30\n"
+    "  - List subdomains:          cat subdomains.txt | head -n 50\n"
+    "  - Count total URLs:         wc -l urls.txt\n"
+    "  - List recent scan files:   ls -lth raw/ | head -n 10\n"
+    "  - Read nmap output:         cat raw/custom_bash-*.urls (ONLY for nmap outputs, not URL search)\n\n"
+    "RULE 3 — REFLECTION WHEN EMPTY OUTPUT:\n"
+    "  If bash returns empty or no output, do NOT conclude 'not found'.\n"
+    "  REFLECT first: Did you use urls.txt? If you used a raw/ file, switch to urls.txt.\n\n"
+    "RULE 4 — REASONING FIELD:\n"
+    "  Always include 'reasoning' (brief internal thought) and 'steps' (array of action plan)\n"
+    "  in your JSON for 'actions' and 'confirm' types. This helps the user understand your plan.\n"
+    "  Example: {\"reasoning\":\"User wants admin login pages. I will grep urls.txt which has 100k+ URLs.\",\"steps\":[\"Search urls.txt for login+admin patterns\",\"Format top results\"]}\n\n"
+    "RULE 5 — ENVIRONMENT:\n"
+    "  Running as ROOT in Linux Docker. Save scripts to 'scripts/', outputs to 'raw/'.\n"
+    "  Use [Workspace Context] block (injected in user message) to understand available files.\n\n"
     "Keep answers in user's language. STRICT JSON ONLY."
 )
 
@@ -823,21 +842,89 @@ def _parse_prompt_to_plan_or_chat_inner(
             self.content = content
 
     current_history = list(history) if history else []
-    
-    # Inject recent raw files to give AI context about newly completed background jobs
-    recent_files = ""
-    raw_dir = Path(f"outputs/{scope}/raw")
-    if raw_dir.exists():
-        try:
-            files = sorted(raw_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:5]
-            if files:
-                recent_files = "\n\n[System Hint] If the user asks to analyze recent outputs or scans, the latest files are:\n" + "\n".join([f"- raw/{f.name}" for f in files]) + "\n(Do NOT delete these files unless explicitly asked to delete files)."
-        except Exception:
-            pass
 
-    loop_prompt = f"[scope:{scope}][intent:{intent}] {p}{recent_files}"
-    
-    for turn in range(3):
+    # ============================================================
+    # FASE 1: Workspace Context Builder
+    # Build a rich context block for the AI about the workspace
+    # ============================================================
+    def _build_workspace_context(scope: str) -> str:
+        lines = [f"\n\n[Workspace Context for {scope}]"]
+
+        # Master URL database
+        urls_file = Path(f"outputs/{scope}/urls.txt")
+        if urls_file.exists():
+            try:
+                url_count = sum(1 for _ in urls_file.open("r", encoding="utf-8", errors="ignore"))
+                lines.append(f"- urls.txt: {url_count:,} URLs (MASTER URL database — use this for all URL searches)")
+            except Exception:
+                lines.append("- urls.txt: (exists, size unknown)")
+        else:
+            lines.append("- urls.txt: NOT FOUND (no URL data collected yet)")
+
+        # Subdomain database
+        sub_file = Path(f"outputs/{scope}/subdomains.txt")
+        if sub_file.exists():
+            try:
+                sub_count = sum(1 for _ in sub_file.open("r", encoding="utf-8", errors="ignore"))
+                lines.append(f"- subdomains.txt: {sub_count:,} subdomains")
+            except Exception:
+                lines.append("- subdomains.txt: (exists)")
+
+        # raw/ directory — scan outputs
+        raw_dir = Path(f"outputs/{scope}/raw")
+        TOOL_PREFIXES = {
+            "gau": "GAU passive URL crawl",
+            "waymore": "Waymore deep URL crawl",
+            "urlfinder": "URLFinder active crawl",
+            "subfinder": "Subfinder subdomain scan",
+            "amass": "Amass subdomain scan",
+            "dirsearch": "Dirsearch dir bruteforce",
+            "custom_bash": "Custom Bash command (may contain non-URL data, e.g. Nmap output)",
+            "probe_subdomains": "Subdomain HTTP probe",
+            "build": "Build/merge output",
+        }
+        if raw_dir.exists():
+            try:
+                raw_files = sorted(raw_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:10]
+                if raw_files:
+                    lines.append("\nRecent scan files in raw/ (newest first):")
+                    for f in raw_files:
+                        size_kb = f.stat().st_size // 1024
+                        prefix = f.name.split("-")[0]
+                        desc = TOOL_PREFIXES.get(prefix, f"{prefix} output")
+                        lines.append(f"  - raw/{f.name} ({size_kb} KB) → {desc}")
+                    lines.append(
+                        "\n  ⚠️  IMPORTANT: DO NOT grep raw/ files for URLs — they may contain non-URL data!"
+                        "\n      To search for URLs, ALWAYS use: cat urls.txt | grep -i '<keyword>'"
+                    )
+            except Exception:
+                pass
+
+        return "\n".join(lines)
+
+    workspace_ctx = _build_workspace_context(scope)
+    loop_prompt = f"[scope:{scope}][intent:{intent}] {p}{workspace_ctx}"
+
+    # Reflection prompts
+    REFLECTION_PROMPT_EMPTY = (
+        "The bash command returned NO OUTPUT. This means the search found nothing in that file.\n"
+        "REFLECT before concluding 'not found':\n"
+        "  1. Did you search 'urls.txt'? If you searched a 'raw/' file, those may NOT contain URLs.\n"
+        "  2. Solution: Use 'cat urls.txt | grep -i <keyword>' to search the MASTER URL database.\n"
+        "  3. If urls.txt also returns empty, THEN you can conclude 'not found'.\n\n"
+        "Based on this reflection, output your NEXT action as STRICT JSON, or a final chat reply if you're sure nothing exists."
+    )
+
+    REFLECTION_PROMPT_ERROR = (
+        "The bash command returned an ERROR. Reflect and try a corrected command.\n"
+        "Common fixes:\n"
+        "  - File not found: Check with 'ls -lh urls.txt subdomains.txt raw/'\n"
+        "  - Glob not expanding: Quote the pattern or use 'ls raw/ | grep <name>'\n\n"
+        "Output your corrected action as STRICT JSON."
+    )
+
+
+    for turn in range(5):  # 5 turns for better agentic recovery
         try:
             resp = _call_ollama(
                 prompt=loop_prompt,
@@ -891,6 +978,36 @@ def _parse_prompt_to_plan_or_chat_inner(
                         return {"type": "chat", "reply": reply, "meta": data.get("meta")}
 
                     if t == "actions" and is_all_bash:
+                        # --- FASE 3: Thinking Card ---
+                        # Show AI reasoning and steps to the user before execution
+                        if append_msg_cb:
+                            reasoning = data.get("reasoning") or ""
+                            steps = data.get("steps") or []
+                            summary = data.get("summary") or ""
+                            if reasoning or steps or summary:
+                                steps_html = ""
+                                if steps:
+                                    steps_items = "".join([
+                                        f"<li class='flex items-start gap-1.5'>"
+                                        f"<span class='text-violet-400 mt-0.5'>→</span>"
+                                        f"<span>{s}</span></li>"
+                                        for s in steps
+                                    ])
+                                    steps_html = f"<ol class='mt-2 space-y-1 text-slate-300 text-[11px]'>{steps_items}</ol>"
+                                thinking_card = f"""
+<div class="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 overflow-hidden text-left">
+  <div class="px-3 py-2 text-[10px] uppercase font-bold text-violet-400 flex items-center gap-2 border-b border-violet-800/30">
+    <span>🧠 Rencana AI</span>
+    <span class="ml-auto text-violet-600 font-normal normal-case">Turn {turn + 1}/5</span>
+  </div>
+  <div class="px-3 py-2 text-[11px] text-slate-400">
+    {f'<p class="text-slate-300 mb-1">{summary or reasoning}</p>' if (summary or reasoning) else ''}
+    {steps_html}
+  </div>
+</div>
+"""
+                                append_msg_cb("assistant", thinking_card, {"html": True})
+
                         combined_output = ""
                         has_executed = False
                         
@@ -912,8 +1029,11 @@ def _parse_prompt_to_plan_or_chat_inner(
                                     out_text += "\n" + run_res.stderr.strip()
                                 if not out_text:
                                     out_text = "(Command executed successfully, no output)"
-                                if len(out_text) > 2000:
-                                    out_text = out_text[:2000] + "\n... (output truncated)"
+                                    is_empty_output = True
+                                else:
+                                    is_empty_output = False
+                                if len(out_text) > 3000:
+                                    out_text = out_text[:3000] + "\n... (output truncated)"
                             except Exception as e:
                                 out_text = f"Error executing bash command: {e}"
                                 
@@ -940,7 +1060,22 @@ def _parse_prompt_to_plan_or_chat_inner(
                         if has_executed:
                             current_history.append(_LoopMsg("assistant", json.dumps(data)))
                             current_history.append(_LoopMsg("user", f"Bash commands executed. Outputs:\n{combined_output}"))
-                            loop_prompt = "Based on the command output above, please provide the final answer to my original question. REMEMBER: You MUST output STRICT JSON using one of the intent types (e.g. {\"type\": \"chat\", \"reply\": \"...\"})."
+
+                            # --- FASE 2: Reflection Logic ---
+                            is_all_empty = "(Command executed successfully, no output)" in combined_output and combined_output.count("$") >= 1
+                            is_error = "Error executing bash command:" in combined_output
+
+                            if is_all_empty:
+                                loop_prompt = REFLECTION_PROMPT_EMPTY
+                            elif is_error:
+                                loop_prompt = REFLECTION_PROMPT_ERROR
+                            else:
+                                loop_prompt = (
+                                    "The bash commands above returned useful output. "
+                                    "Now provide the FINAL ANSWER to the user's original question. "
+                                    "Format the results clearly. REMEMBER: output STRICT JSON "
+                                    '{"type": "chat", "reply": "<your nicely formatted answer>"}'
+                                )
                             continue
                 
                     # Pasang metadata proposal card jika LLM memicu CLI tool
