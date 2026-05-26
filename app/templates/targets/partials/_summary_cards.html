@@ -9,25 +9,20 @@
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
   <!-- Total URLs -->
-  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm relative group">
-    <div class="text-xs uppercase tracking-wide text-slate-500">Total URLs</div>
-    <div class="mt-1 text-2xl font-semibold">{{ ("{:,}".format(urls_count) if urls_count else 0)}} </div>
-    <div class="mt-2 text-xs text-slate-500">All indexed URLs across modules</div>
+  <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
+    <div>
+      <div class="text-xs uppercase tracking-wide text-slate-500">Total URLs</div>
+      <div class="mt-1 text-2xl font-semibold">{{ ("{:,}".format(urls_count) if urls_count else 0)}} </div>
+      <div class="mt-2 text-xs text-slate-500">All indexed URLs across modules</div>
+    </div>
 
-    <!-- Quick Actions (Hover) -->
-    <div class="absolute top-3 right-3 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity items-end">
-      <button onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/gau')" 
-              class="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition-colors shadow-sm font-medium border border-slate-200/50 flex items-center gap-1.5" 
-              title="Collect new URLs using GAU">
-          <i class="fas fa-cloud-download-alt"></i> (re)collect
-      </button>
+    <div class="mt-3 text-[11px] flex items-center gap-3">
       {% if urls_count and urls_count > 0 %}
-      <button onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/build')" 
-              class="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded transition-colors shadow-sm font-medium border border-indigo-200/50 flex items-center gap-1.5" 
-              title="Rebuild modules from URLs">
-          <i class="fas fa-cogs text-indigo-500"></i> (re)build modules
-      </button>
+      <a href="javascript:void(0)" onclick="window.parent.openCliRunnerSidebar('/targets/{{ scope }}/collect/build')"
+        class="text-slate-500 hover:text-indigo-600 transition-colors">(re)build modules</a>
       {% endif %}
+      <a href="javascript:void(0)" onclick="document.getElementById('recollectModal')?.classList.remove('hidden')"
+        class="text-blue-600 hover:text-blue-700 transition-colors">(re)collect urls</a>
     </div>
   </div>
 
@@ -50,13 +45,13 @@
     <div class="text-xs uppercase tracking-wide text-slate-500">Last Probe/Scan</div>
     <div class="mt-1 text-xl font-medium">
       {% if last_probe_iso %}
-        {% if has_timeago %}
-          {{ dash.last_probe_iso|timeago }}
-        {% else %}
-          {{ dash.last_probe_iso or '-' }}
-        {% endif %}
+      {% if has_timeago %}
+      {{ dash.last_probe_iso|timeago }}
       {% else %}
-        <span class="text-slate-400">-</span>
+      {{ dash.last_probe_iso or '-' }}
+      {% endif %}
+      {% else %}
+      <span class="text-slate-400">-</span>
       {% endif %}
     </div>
     <div class="mt-2 text-xs text-slate-500">Most recent probe completion</div>

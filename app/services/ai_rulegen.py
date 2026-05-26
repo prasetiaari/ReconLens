@@ -707,6 +707,12 @@ LLM_SYSTEM_MSG = (
     "RULE 5 — ENVIRONMENT:\n"
     "  Running as ROOT in Linux Docker. Save scripts to 'scripts/', outputs to 'raw/'.\n"
     "  Use [Workspace Context] block (injected in user message) to understand available files.\n\n"
+    "RULE 6 — ACTIONS VS CONFIRM FOR BASH:\n"
+    "  - For quick internal tasks (grep, python scripts, curl, log analysis), MUST use type: 'actions'. It executes silently & fast.\n"
+    "  - For long-running, heavy scanners (nmap, nuclei, ffuf) via bash, MUST use type: 'confirm'. Provide an output flag (e.g. nmap -oN raw/scan.txt) so you can analyze it later via 'actions'.\n\n"
+    "RULE 7 — SCOPE RESTRICTION (CRITICAL):\n"
+    "  NEVER scan, probe, or attack any host, domain, or IP that is outside the current scope context ([scope:...]).\n"
+    "  If the user asks to run tools against an out-of-scope target, you MUST refuse and explain that it is out of scope by returning a 'chat' type.\n\n"
     "Keep answers in user's language. STRICT JSON ONLY."
 )
 
@@ -1066,13 +1072,14 @@ def _parse_prompt_to_plan_or_chat_inner(
                             is_error = "Error executing bash command:" in combined_output
 
                             if is_all_empty:
-                                loop_prompt = REFLECTION_PROMPT_EMPTY
+                                loop_prompt = f"Original question: {p}\n\n{REFLECTION_PROMPT_EMPTY}"
                             elif is_error:
-                                loop_prompt = REFLECTION_PROMPT_ERROR
+                                loop_prompt = f"Original question: {p}\n\n{REFLECTION_PROMPT_ERROR}"
                             else:
                                 loop_prompt = (
+                                    f"Original question: {p}\n\n"
                                     "The bash commands above returned useful output. "
-                                    "Now provide the FINAL ANSWER to the user's original question. "
+                                    "Now provide the FINAL ANSWER to the user's original question based on the command output. "
                                     "Format the results clearly. REMEMBER: output STRICT JSON "
                                     '{"type": "chat", "reply": "<your nicely formatted answer>"}'
                                 )
@@ -1159,12 +1166,20 @@ def _parse_prompt_to_plan_or_chat_inner(
                         pass
                 err_container.append(err_msg)
             print(f"[rulegen] Fallback: {e}")
-            # Jika LLM berhasil merespon tetapi bukan JSON valid (misal, kode python/prosa mentah),
-            # langsung kembalikan respon chat tersebut agar tidak hilang dibuang ke default fallback.
+            
+            # Jika LLM berhasil merespon tetapi bukan JSON valid
             if resp and len(resp.strip()) > 5:
-                if err_container is not None:
-                    err_container.clear() # Clear error so it doesn't get tagged as Heuristic Fallback
-                return {"type": "chat", "reply": resp}
+                # Jika terlihat seperti JSON yang gagal di-parse, minta LLM perbaiki
+                if resp.strip().startswith("{") and '"type"' in resp:
+                    print(f"[rulegen] Broken JSON detected, asking LLM to fix in turn {turn}")
+                    current_history.append({"role": "assistant", "content": resp})
+                    current_history.append({"role": "user", "content": "Your last output was invalid JSON (syntax error). Please provide the exact same intent but fix the JSON syntax. Output ONLY valid JSON."})
+                    continue
+                else:
+                    # Treat as raw prosa/chat
+                    if err_container is not None:
+                        err_container.clear() # Clear error so it doesn't get tagged as Heuristic Fallback
+                    return {"type": "chat", "reply": resp}
             break
 
     return {"type": "chat", "reply": "Maaf bro, saya kesulitan memproses instruksi ini. Coba sampaikan dengan lebih spesifik."}

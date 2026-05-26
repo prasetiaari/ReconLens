@@ -223,7 +223,65 @@
     }, 0);
   }
 
-  // Handle new thread creations and redirect via query string on htmx afterRequest
+  if (!window._reconAiScriptsLoaded) {
+    window._reconAiScriptsLoaded = true;
+
+    // Handle new thread creations and redirect via query string on htmx afterRequest
+    document.body.addEventListener('htmx:afterRequest', (ev) => {
+      const elt = ev.target;
+      if (!elt || elt.id !== 'btn-new-thread') return;
+      try {
+        const j = JSON.parse(ev.detail.xhr.responseText || '{}');
+        if (j && j.ok && j.thread_id) {
+          // Find the scope from the current URL or from a global variable if possible.
+          // Since this is evaluated once globally, we can just reload the page with the new thread.
+          // Extract the current path and append/replace thread query
+          const url = new URL(location.href);
+          url.searchParams.set('thread', j.thread_id);
+          location.href = url.toString();
+        }
+      } catch(_) {}
+    });
+
+    // Keep chat containers scrolled to bottom and focus textareas on AJAX swaps
+    document.body.addEventListener('htmx:afterSwap', (ev) => {
+      if (ev?.detail?.target?.id === 'ai-conversation') {
+        const box = ev.detail.target;
+        // Scroll to the absolute bottom of messages area
+        const innerScroll = box.querySelector('.overflow-y-auto');
+        if (innerScroll) {
+          innerScroll.scrollTop = innerScroll.scrollHeight;
+        } else {
+          box.scrollTop = box.scrollHeight;
+        }
+        // Re-focus composer area
+        const t = document.getElementById('chat-input');
+        t && t.focus();
+      }
+    });
+
+    // Hotkey handlers for chat input (Enter to Send, Shift+Enter for new lines)
+    document.addEventListener('keydown', (e) => {
+      const t = document.getElementById('chat-input');
+      if (!t || document.activeElement !== t) return;
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const form = document.getElementById('aiPlanForm');
+        form?.requestSubmit();
+      }
+    });
+
+    // Optional: Auto-grow textarea row size based on content height
+    document.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t && t.id === 'chat-input') {
+        t.style.height = 'auto';
+        t.style.height = (t.scrollHeight) + 'px';
+      }
+    });
+  }
+
+  // Bind the enter key for the new thread input directly since it might be re-rendered
   (function () {
     const inp = document.getElementById('new-thread-title');
     const btn = document.getElementById('btn-new-thread');
@@ -231,56 +289,6 @@
       if (e.key === 'Enter') {
         e.preventDefault();
         btn?.click();
-      }
-    });
-
-    document.body.addEventListener('htmx:afterRequest', (ev) => {
-      const elt = ev.target;
-      if (!elt || elt.id !== 'btn-new-thread') return;
-      try {
-        const j = JSON.parse(ev.detail.xhr.responseText || '{}');
-        if (j && j.ok && j.thread_id) {
-          location.href = '/targets/{{ scope }}/ai/command?thread=' + j.thread_id;
-        }
-      } catch(_) {}
-    });
-  })();
-
-  // Keep chat containers scrolled to bottom and focus textareas on AJAX swaps
-  document.body.addEventListener('htmx:afterSwap', (ev) => {
-    if (ev?.detail?.target?.id === 'ai-conversation') {
-      const box = ev.detail.target;
-      // Scroll to the absolute bottom of messages area
-      const innerScroll = box.querySelector('.overflow-y-auto');
-      if (innerScroll) {
-        innerScroll.scrollTop = innerScroll.scrollHeight;
-      } else {
-        box.scrollTop = box.scrollHeight;
-      }
-      // Re-focus composer area
-      const t = document.getElementById('chat-input');
-      t && t.focus();
-    }
-  });
-
-  // Hotkey handlers for chat input (Enter to Send, Shift+Enter for new lines)
-  document.addEventListener('keydown', (e) => {
-    const t = document.getElementById('chat-input');
-    if (!t || document.activeElement !== t) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const form = document.getElementById('aiPlanForm');
-      form?.requestSubmit();
-    }
-  });
-
-  // Optional: Auto-grow textarea row size based on content height
-  (function() {
-    document.addEventListener('input', (e) => {
-      const t = e.target;
-      if (t && t.id === 'chat-input') {
-        t.style.height = 'auto';
-        t.style.height = (t.scrollHeight) + 'px';
       }
     });
   })();
