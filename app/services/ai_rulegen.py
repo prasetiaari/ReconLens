@@ -989,19 +989,19 @@ def _parse_prompt_to_plan_or_chat_inner(
                                 if steps:
                                     steps_items = "".join([
                                         f"<li class='flex items-start gap-1.5'>"
-                                        f"<span class='text-violet-400 mt-0.5'>→</span>"
+                                        f"<span class='text-violet-600 mt-0.5'>→</span>"
                                         f"<span>{s}</span></li>"
                                         for s in steps
                                     ])
-                                    steps_html = f"<ol class='mt-2 space-y-1 text-slate-300 text-[11px]'>{steps_items}</ol>"
+                                    steps_html = f"<ol class='mt-2 space-y-1 text-slate-700 text-[11px]'>{steps_items}</ol>"
                                 thinking_card = f"""
-<div class="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 overflow-hidden text-left">
-  <div class="px-3 py-2 text-[10px] uppercase font-bold text-violet-400 flex items-center gap-2 border-b border-violet-800/30">
+<div class="mb-3 rounded-lg border border-violet-200 bg-violet-50 overflow-hidden text-left shadow-sm">
+  <div class="px-3 py-2 text-[10px] uppercase font-bold text-violet-700 flex items-center gap-2 border-b border-violet-100 bg-violet-100/50">
     <span>🧠 Rencana AI</span>
-    <span class="ml-auto text-violet-600 font-normal normal-case">Turn {turn + 1}/5</span>
+    <span class="ml-auto text-violet-500 font-normal normal-case">Turn {turn + 1}/5</span>
   </div>
-  <div class="px-3 py-2 text-[11px] text-slate-400">
-    {f'<p class="text-slate-300 mb-1">{summary or reasoning}</p>' if (summary or reasoning) else ''}
+  <div class="px-3 py-2 text-[11px] text-slate-600">
+    {f'<p class="text-slate-700 font-medium mb-1">{summary or reasoning}</p>' if (summary or reasoning) else ''}
     {steps_html}
   </div>
 </div>
