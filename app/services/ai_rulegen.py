@@ -239,7 +239,7 @@ def _call_ollama(
             if role in ("user", "assistant"):
                 # Clean HTML tags and buttons from assistant replies for clean context
                 if role == "assistant":
-                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan"]):
+                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan", "System Tool"]):
                         continue
                     content = _clean_html_for_llm(content)
                     if not content:
@@ -282,7 +282,7 @@ def _call_ollama(
             if role in ("user", "assistant"):
                 # Clean HTML tags and buttons from assistant replies for clean context
                 if role == "assistant":
-                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan"]):
+                    if any(k in content for k in ["Plan created", "✔", "hx-post", "Plan dibatalkan", "System Tool"]):
                         continue
                     content = _clean_html_for_llm(content)
                     if not content:
@@ -707,9 +707,8 @@ def _extract_first_json_block(s: str):
             try:
                 return json.loads(cand[:end])
             except Exception:
-        if isinstance(raw, dict):
-            return raw
-        return {"type": "chat", "reply": str(raw) if raw else "Failed to parse JSON block"}
+                continue
+        raise ValueError("Failed to parse JSON block")
 
 
 def _ollama_json_router(prompt: str, model: str = DEFAULT_MODEL, temperature: float = 0.0, timeout: int = DEFAULT_TIMEOUT) -> dict:
