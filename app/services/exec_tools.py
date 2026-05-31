@@ -150,6 +150,8 @@ def build_tool_cmd(
     settings: Optional[dict] = None,
     dirsearch_outfile: Optional[Path] = None,
     custom_cmd: str | None = None,
+    probe_mode: str = "HEAD",
+    only_alive: bool = False,
 ) -> list[str]:
     """
     Build the CLI command for external tools and internal ReconLens modules.
@@ -274,18 +276,21 @@ def build_tool_cmd(
                 "--headers-json", json.dumps(headers_dict, ensure_ascii=False),
                 "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
             ]
-        return [
+        cmd = [
             py, "-m", "ReconLens.tools.probe_urls",
             "--scope", scope,
             "--outputs", str(outputs_root),
             "--input", str(input_file),
             "--source", mod,
-            "--mode", "GET",
+            "--mode", probe_mode,
             "--concurrency", "8",
             "--timeout", "20",
             "--headers-json", json.dumps(headers_dict, ensure_ascii=False),
             "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
         ]
+        if only_alive:
+            cmd.append("--only-alive")
+        return cmd
 
     # --- dirsearch ---
     if tool == "dirsearch":

@@ -478,6 +478,27 @@ MODALS
         </div>
       </div>
 
+      <div class="space-y-2 mt-4">
+        <div class="text-slate-700 font-medium">Probe Mode</div>
+        <label class="flex items-center gap-2">
+          <input type="radio" name="probe_mode" value="HEAD" checked class="accent-rose-600">
+          <span><strong>Fast Screening</strong> (HEAD only)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="radio" name="probe_mode" value="GET" class="accent-rose-600">
+          <span><strong>Content Probe</strong> (GET title & body size)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input type="radio" name="probe_mode" value="OPTIONS" class="accent-rose-600">
+          <span><strong>Method Discovery</strong> (OPTIONS for allowed methods)</span>
+        </label>
+      </div>
+
+      <label class="flex items-start gap-2 mt-4">
+        <input id="probeOnlyAlive" type="checkbox" checked class="mt-1 accent-rose-600">
+        <span class="text-slate-600 text-sm"><strong>Only probe alive endpoints</strong> (skip endpoints that are marked as dead)</span>
+      </label>
+
       <label class="flex items-start gap-2">
         <input id="probeAgree" type="checkbox" class="mt-1 accent-rose-600">
         <span class="text-slate-600">I understand this is an active scan and I have authorization.</span>
@@ -590,11 +611,15 @@ MODALS
   // Action: Open in sliding sidebar instead of new tab!
   runBtn?.addEventListener('click', () => {
     const scopeChoice = document.querySelector('input[name="probe_scope"]:checked')?.value || 'all';
+    const modeChoice = document.querySelector('input[name="probe_mode"]:checked')?.value || 'HEAD';
+    const onlyAlive = document.getElementById('probeOnlyAlive')?.checked ? 'true' : 'false';
+    const qs = `&mode=${modeChoice}&only_alive=${onlyAlive}`;
+    
     if (scopeChoice === 'module') {
       const m = modSel?.value || 'other';
-      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_module?module=${encodeURIComponent(m)}`);
+      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_module?module=${encodeURIComponent(m)}${qs}`);
     } else {
-      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_subdomains`);
+      window.openCliRunnerSidebar(`/targets/${encodeURIComponent(scope)}/collect/probe_urls?start=true${qs}`);
     }
   });
 }) ();

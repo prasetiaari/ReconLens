@@ -27,10 +27,17 @@ def _parse_headers_json(s: str | None) -> dict:
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
-            # pastikan semua key/value jadi string
             return {str(k): str(v) for k, v in obj.items()}
     except Exception:
-        pass
+        return {}
+
+def load_url_enrich(outputs_root: Path, scope: str) -> dict:
+    p = outputs_root / scope / "__cache" / "url_enrich.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
     return {}
 
 def _ensure_user_agent(h: dict, fallback: str | None) -> dict:
@@ -64,25 +71,33 @@ async def fetch_url(
             "content_type": None,
             "final_url": url,
             "last_probe": int(time.time()),
-            "mode": mode,
+            "method": mode,
             "error": None,
         }
         try:
             if mode == "HEAD":
                 r = await client.head(url, follow_redirects=True, timeout=timeout)
+            elif mode == "OPTIONS":
+                r = await client.options(url, timeout=timeout)
             else:
                 r = await client.get(url, follow_redirects=True, timeout=timeout)
-            rec["alive"] = r.status_code < 500
+                
+            rec["alive"] = True
             rec["code"] = r.status_code
             rec["size"] = len(r.content)
             rec["content_type"] = r.headers.get("content-type")
             rec["final_url"] = str(r.url)
 
-            # Naive <title> parse (cukup untuk preview)
-            text = r.text[:3000]
-            m = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
-            if m:
-                rec["title"] = re.sub(r"\s+", " ", m.group(1)).strip()
+            if mode == "OPTIONS":
+                if "allow" in r.headers:
+                    methods = [mx.strip().upper() for mx in r.headers["allow"].split(",") if mx.strip()]
+                    rec["supported_methods"] = methods
+            else:
+                # Naive <title> parse (cukup untuk preview)
+                text = r.text[:3000]
+                m = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+                if m:
+                    rec["title"] = re.sub(r"\s+", " ", m.group(1)).strip()
 
             return rec
         except Exception as e:
@@ -107,6 +122,7 @@ async def _runner(
     ua: str,
     retries: int,
     headers: dict | None = None,
+    only_alive: bool = False,
 ) -> Tuple[int, int]:
     """
     Probe kumpulan URL secara concurrent dan tulis:
@@ -119,6 +135,17 @@ async def _runner(
 
     ndjson_path = cache_dir / "url_probe.ndjson"
     module_enrich_path = cache_dir / f"{source}_enrich.json"
+
+    if only_alive:
+        enrich_url = load_url_enrich(outputs, scope) or {}
+        alive_urls = []
+        for u in urls:
+            cu = canon_url(u)
+            rec = enrich_url.get(cu)
+            if rec and rec.get("alive") is True:
+                alive_urls.append(u)
+        print(f"[info] --only-alive filtered from {len(urls)} to {len(alive_urls)} URLs")
+        urls = alive_urls
 
     limits = httpx.Limits(
         max_connections=max(4, concurrency),
@@ -139,6 +166,7 @@ async def _runner(
         dns_cache: Dict[str, bool] = {}
         in_flight: Dict[str, asyncio.Task] = {}
         dead_ports: Set[str] = set()
+        start_time = time.time()
 
         async def check_dns(host: str) -> bool:
             if host in dns_cache:
@@ -231,6 +259,15 @@ async def _runner(
                 # tambahkan metadata
                 rec["sources"] = list({*(rec.get("sources") or []), source})
                 rec["first_seen"] = rec.get("first_seen") or int(time.time())
+                
+                # accumulate methods
+                old_methods = set(module_map.get(cu, {}).get("supported_methods", []))
+                if "supported_methods" in rec:
+                    old_methods.update(rec["supported_methods"])
+                new_method = rec.get("method") or mode or "GET"
+                old_methods.add(new_method.upper())
+                rec["supported_methods"] = sorted(list(old_methods))
+                
                 module_map[cu] = rec
 
                 # statistik
@@ -240,11 +277,23 @@ async def _runner(
                 pbar.set_postfix(alive=alive_count, err=done - alive_count)
                 pbar.update(1)
 
+                # Custom progress for frontend CLI runner
+                if done % max(1, len(tasks) // 100) == 0 or done == len(tasks):
+                    elapsed = time.time() - start_time
+                    prog = {
+                        "total": len(tasks),
+                        "done": done,
+                        "alive": alive_count,
+                        "elapsed": round(elapsed, 1)
+                    }
+                    print(f"[progress] {json.dumps(prog)}")
+
     # Simpan peta modul & merge ke url_enrich.json
     save_enrich_map_atomic(module_enrich_path, module_map)
     merge_into_url_enrich(outputs, scope, module_map)
 
-    print(f"[done] total={len(urls)} done={done} alive={alive_count}")
+    duration = time.time() - start_time
+    print(f"[done] total={len(tasks)} done={done} alive={alive_count} time={duration:.1f}s")
     print(f"[out] module_enrich={module_enrich_path} ndjson={ndjson_path}")
     return done, alive_count
 
@@ -256,7 +305,8 @@ def main():
     ap.add_argument("--outputs", required=True, help="Outputs base dir (same with FastAPI settings)")
     ap.add_argument("--input", required=True, help="Text file of URLs (one per line)")
     ap.add_argument("--source", required=True, help="Module/source name (e.g., sensitive_paths, documents)")
-    ap.add_argument("--mode", default="GET", choices=["GET", "HEAD"], help="HTTP method")
+    ap.add_argument("--mode", default="HEAD", choices=["GET", "HEAD", "OPTIONS"], help="HTTP method")
+    ap.add_argument("--only-alive", action="store_true", help="Only probe URLs marked as alive in url_enrich.json")
     ap.add_argument("--concurrency", type=int, default=12, help="Concurrent workers")
     ap.add_argument("--timeout", type=int, default=20, help="Per request timeout (seconds)")
     ap.add_argument("--headers-json", help="JSON object of extra headers to send", default=None)
@@ -282,6 +332,7 @@ def main():
             ua=args.ua,
             retries=args.retries,
             headers=headers,
+            only_alive=args.only_alive,
         )
     )
 

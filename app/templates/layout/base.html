@@ -207,7 +207,7 @@
     }, 1000);
   }
 
-  function stopTimer(status) {
+  function stopTimer(status, durationS) {
     isJobRunning = false;
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = null;
@@ -216,7 +216,8 @@
       floatingPulse.className = "hidden";
       floatingDot.className = "relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500";
       headerDot.className = "w-3 h-3 rounded-full bg-blue-500";
-      floatingLabel.textContent = `${activeTool} completed successfully!`;
+      let timeText = durationS ? ` in ${durationS}s` : '';
+      floatingLabel.textContent = `${activeTool} completed successfully${timeText}!`;
     } else {
       floatingPulse.className = "hidden";
       floatingDot.className = "relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500";
@@ -230,8 +231,8 @@
     floatingWidget.classList.remove('hidden');
   };
 
-  window.onCliJobFinished = function(status) {
-    stopTimer(status);
+  window.onCliJobFinished = function(status, durationS) {
+    stopTimer(status, durationS);
     // Smoothly refresh target content when any tool finishes successfully
     if (status === 'done') {
       if (typeof htmx !== 'undefined') {
@@ -246,6 +247,7 @@
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'reconlens:job_finished') {
       const status = event.data.status;
+      const durationS = event.data.duration;
       if (status === 'done') {
         if (typeof htmx !== 'undefined') {
           htmx.ajax('GET', window.location.pathname, { target: '#appWrapper', select: '#appWrapper', swap: 'outerHTML' });

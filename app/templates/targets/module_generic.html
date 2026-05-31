@@ -110,7 +110,7 @@
 <div class="col-span-6 md:col-span-2 flex gap-3 items-end justify-end">
 {# mapping untuk partial #}
 {% set module = (module_name or module)|lower %}
-{% set lines = total %}
+{% set lines = stats_map[module].lines if module in stats_map else total %}
 {% set host_options = (discovery_host_options if discovery_host_options else host_options) %}
 
 {% include "components/_module_probe_modal.html" %}
@@ -121,7 +121,9 @@
       <thead class="bg-slate-100 text-slate-700">
         <tr class="bg-slate-100 text-slate-600 text-sm">
           <th class="px-4 py-2 text-left w-[36ch]">URL</th>
-          <th class="px-12 py-2 text-left">method</th>  {# was: status #}
+          <th class="px-4 py-2 text-left">status</th>
+          <th class="px-4 py-2 text-left">method</th>
+          <th class="px-8 py-2 text-left">supported_methods</th>
           <th class="px-4 py-2 text-left">code</th>
           <th class="px-4 py-2 text-left">size</th>
           <th class="p-3 text-left max-w-[20ch]">title</th>

@@ -100,7 +100,13 @@ def merge_into_url_enrich(outputs_dir: Path | str, scope: str, module_map: Dict[
     """
     p = url_enrich_path(outputs_dir, scope)
     base = _read_json_memo(p) if p.exists() else {}
-    base.update(module_map)
+    for k, v in module_map.items():
+        if k in base:
+            old_methods = set(base[k].get("supported_methods", []))
+            new_methods = set(v.get("supported_methods", []))
+            if old_methods or new_methods:
+                v["supported_methods"] = sorted(list(old_methods | new_methods))
+        base[k] = v
     save_enrich_map_atomic(p, base)
 
 

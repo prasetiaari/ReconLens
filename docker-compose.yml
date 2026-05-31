@@ -9,6 +9,9 @@ services:
     volumes:
       # Mount the app folder for real-time local development hot-reloading!
       - ./app:/app/app
+      - ./tools:/app/tools
+      - ./core:/app/core
+      - ./modules:/app/modules
       # Persist pentest output data on the host machine
       - ./outputs:/app/outputs
       # Persist user app settings on the host machine

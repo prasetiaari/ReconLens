@@ -2,11 +2,11 @@
   {% for r in rows %}
     <tr class="border-t">
       <td class="px-4 py-2 font-mono text-[13px] break-all">{{ r.url }}</td>
-      <!--<td class="px-4 py-2">
-        {% if r.status == 'up' %}<span class="text-green-600">up</span>
-        {% elif r.status == 'down' %}<span class="text-rose-600">down</span>
+      <td class="px-4 py-2">
+        {% if r.status == 'alive' %}<span class="inline-flex items-center gap-1.5 text-green-600 text-xs font-medium uppercase"><div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>alive</span>
+        {% elif r.status == 'dead' %}<span class="inline-flex items-center gap-1.5 text-rose-500 text-xs font-medium uppercase"><div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>dead</span>
         {% else %}-{% endif %}
-      </td>-->
+      </td>
       {# ganti status → method #}
       <td class="px-4 py-2">
         {% if r.method %}
@@ -14,6 +14,15 @@
         {% else %}
           -
         {% endif %}
+      </td>
+      <td class="px-4 py-2">
+        <div class="flex flex-wrap gap-1">
+          {% for m in r.supported_methods %}
+            <span class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono text-slate-600">{{ m }}</span>
+          {% else %}
+            -
+          {% endfor %}
+        </div>
       </td>
       <td class="px-4 py-2">{{ r.code if r.code is not none else '-' }}</td>
       <td class="px-4 py-2">

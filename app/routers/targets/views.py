@@ -177,12 +177,14 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
 
         method_val = pick(
             rec_url.get("method") if rec_url else None,
-            rec_url.get("mode")   if rec_url else None,
             rec_host.get("method") if rec_host else None,
-            rec_host.get("mode")   if rec_host else None,
         )
+        supported_methods = pick(
+            rec_url.get("supported_methods") if rec_url else None,
+            rec_host.get("supported_methods") if rec_host else None,
+        ) or []
         method_val_u = (str(method_val).upper() if method_val else "")
-        if method_filter and method_val_u != method_filter:
+        if method_filter and method_val_u != method_filter and method_filter not in [m.upper() for m in supported_methods]:
             continue
 
         code  = pick(rec_url.get("code") if rec_url else None,
@@ -228,7 +230,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             rec_url.get("alive") if (rec_url and "alive" in rec_url) else
             (rec_host.get("alive") if (rec_host and "alive" in rec_host) else None)
         )
-        status = "up" if alive is True else ("down" if alive is False else "-")
+        status = "alive" if alive is True else ("dead" if alive is False else "-")
 
         filtered_rows.append({
             "url": s,
@@ -242,6 +244,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             "host": host,
             "scheme": scheme,
             "method": method_val_u or None,
+            "supported_methods": supported_methods,
         })
 
     # --- pagination ---
@@ -303,12 +306,14 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
 
 @router.get("/{scope}/probe/module/{module}", response_class=HTMLResponse)
 async def probe_module_console_alias(request: Request, scope: str, module: str):
-    return RedirectResponse(url=f"/targets/{scope}/collect/probe_module?module={module}")
+    qs = request.url.query
+    return RedirectResponse(url=f"/targets/{scope}/collect/probe_module?module={module}&{qs}")
 
 @router.post("/{scope}/probe/module/{module}/start")
 async def probe_module_start_alias(scope: str, module: str, request: Request):
+    qs = request.url.query
     return RedirectResponse(
-        url=f"/targets/{scope}/collect/probe_module/start?module={module}",
+        url=f"/targets/{scope}/collect/probe_module/start?module={module}&{qs}",
         status_code=307
     )
 

@@ -78,14 +78,23 @@
       <div id="runIndicator"
            class="hidden items-center gap-2 text-sm text-slate-600 ml-2">
         <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle class="opacity-25" cx="12" cy="12" r="10"
-                  stroke="currentColor" stroke-width="4"/>
-          <path class="opacity-75" fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
         </svg>
         <span>Running…</span>
         <span class="text-slate-400">·</span>
         <span id="elapsed">0s</span>
+        
+        <div id="progressContainer" class="hidden items-center gap-2 ml-4">
+            <div class="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div id="progressBar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <span id="progressText" class="text-xs font-mono text-slate-500">0/0 (0%)</span>
+        </div>
+        
+        <div id="counterContainer" class="hidden items-center gap-2 ml-4">
+            <span class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-xs font-medium">Found: <span id="counterText">0</span></span>
+        </div>
       </div>
     </div>
 
@@ -227,18 +236,25 @@
   }
   enforceDirsearchHost();
 
-  function notifyJobFinished(status) {
+  function notifyJobFinished(status, durationS) {
     if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
-      window.parent.onCliJobFinished(status);
+      window.parent.onCliJobFinished(status, durationS);
     }
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: 'reconlens:job_finished', tool: tool, status: status }, '*');
+      window.opener.postMessage({ type: 'reconlens:job_finished', tool: tool, status: status, duration: durationS }, '*');
     }
   }
 
   async function startJob(){
     if (es) { try { es.close(); } catch(_){} es = null; }
     outEl.textContent = "";
+    document.getElementById('progressContainer').classList.add('hidden');
+    document.getElementById('counterContainer').classList.add('hidden');
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressText').textContent = '0/0 (0%)';
+    document.getElementById('counterText').textContent = '0';
+    let counterVal = 0;
+    
     setRunning(true);
 
     try{
@@ -268,10 +284,36 @@
           setRunning(false);
           try { es.close(); } catch(_){}
           es = null;
-          append("[done] finished\n");
-          notifyJobFinished('done');
+          const durS = Math.floor((Date.now() - startedAt)/1000);
+          append(`[done] finished in ${durS}s\n`);
+          notifyJobFinished('done', durS);
           return;
         }
+        
+        if (ev.data.startsWith('[progress]')) {
+            try {
+                const progStr = ev.data.substring(10).trim();
+                const prog = JSON.parse(progStr);
+                const pct = Math.floor((prog.done / prog.total) * 100) || 0;
+                
+                document.getElementById('progressContainer').classList.remove('hidden');
+                document.getElementById('counterContainer').classList.add('hidden'); // Hide counter if deterministic progress is available
+                
+                document.getElementById('progressBar').style.width = pct + '%';
+                document.getElementById('progressText').textContent = `${prog.done}/${prog.total} (${pct}%)`;
+            } catch(e) {}
+            return; // Do not append to terminal
+        }
+        
+        // Counter logic for streaming tools (ignore system tags)
+        if (!ev.data.startsWith('[info]') && !ev.data.startsWith('[error]') && !ev.data.startsWith('[done]') && !ev.data.startsWith('[out]') && ev.data.trim().length > 0) {
+            counterVal++;
+            document.getElementById('counterText').textContent = counterVal;
+            if (document.getElementById('progressContainer').classList.contains('hidden')) {
+                document.getElementById('counterContainer').classList.remove('hidden');
+            }
+        }
+
         append(ev.data + "\n");
       };
       es.onerror = () => {
@@ -323,8 +365,9 @@
         setRunning(false);
         try { es.close(); } catch(_){}
         es = null;
-        append("[done] finished\n");
-        notifyJobFinished('done');
+        const durS = Math.floor((Date.now() - startedAt)/1000);
+        append(`[done] finished in ${durS}s\n`);
+        notifyJobFinished('done', durS);
         return;
       }
       append(ev.data + "\n");

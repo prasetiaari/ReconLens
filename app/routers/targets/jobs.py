@@ -78,8 +78,9 @@ def _save_job_to_disk(job_id: str, info: dict):
             "done": info.get("done", False),
             "exit_code": info.get("exit_code"),
             "log_path": info.get("log_path"),
-            "urls_path": info.get("urls_path"),
             "raw_path": info.get("raw_path"),
+            "probe_mode": info.get("probe_mode", "HEAD"),
+            "only_alive": info.get("only_alive", False),
             "pid": info.get("pid"),
         }
         with open(JOBS_DIR / f"{job_id}.json", "w", encoding="utf-8") as f:
@@ -132,6 +133,8 @@ def _load_job_from_disk(job_id: str) -> dict | None:
             "log_path": log_path,
             "urls_path": data.get("urls_path"),
             "raw_path": data.get("raw_path"),
+            "probe_mode": data.get("probe_mode", "HEAD"),
+            "only_alive": data.get("only_alive", False),
             "pid": pid,
         }
         JOBS[job_id] = info
@@ -142,7 +145,7 @@ def _load_job_from_disk(job_id: str) -> dict | None:
 
 
 def _new_job(scope: str, tool: str, module: str | None = None,
-             host: str | None = None, wordlists: str | None = None, custom_cmd: str | None = None) -> str:
+             host: str | None = None, wordlists: str | None = None, custom_cmd: str | None = None, probe_mode: str = "HEAD", only_alive: bool = False) -> str:
     """Create a new job entry and initialize its async queue with history recording."""
     jid = os.urandom(12).hex()
     info = {
@@ -156,6 +159,8 @@ def _new_job(scope: str, tool: str, module: str | None = None,
         "host": host,
         "wordlists": wordlists,
         "custom_cmd": custom_cmd,
+        "probe_mode": probe_mode,
+        "only_alive": only_alive,
         "pid": None,
     }
     JOBS[jid] = info
@@ -282,6 +287,8 @@ async def _run_job(
             settings=settings,
             dirsearch_outfile=dirsearch_outfile,
             custom_cmd=job.get("custom_cmd"),
+            probe_mode=job.get("probe_mode", "HEAD"),
+            only_alive=job.get("only_alive", False),
         )
 
         # Env & CWD sama seperti “old”
@@ -507,6 +514,8 @@ async def collect_start(scope: str, tool: str, request: Request):
     module = request.query_params.get("module")
     host = request.query_params.get("host") or ""
     wl_name = request.query_params.get("wordlist") or "dicc.txt"
+    probe_mode = request.query_params.get("mode") or "HEAD"
+    only_alive = request.query_params.get("only_alive") == "true"
 
     if tool == "dirsearch":
         if not host:
@@ -528,9 +537,9 @@ async def collect_start(scope: str, tool: str, request: Request):
             raw_cmd = ""
         if not raw_cmd:
             return JSONResponse({"ok": False, "error": "missing cmd_b64 parameter"}, status_code=400)
-        jid = _new_job(scope, tool, custom_cmd=raw_cmd)
+        jid = _new_job(scope, tool, custom_cmd=raw_cmd, probe_mode=probe_mode, only_alive=only_alive)
     else:
-        jid = _new_job(scope, tool, module=module, host=host)
+        jid = _new_job(scope, tool, module=module, host=host, probe_mode=probe_mode, only_alive=only_alive)
 
     out_dir = OUTPUTS_DIR / scope
     settings = get_settings(request)

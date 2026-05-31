@@ -406,9 +406,11 @@ async def _runner(
 
         tasks = [asyncio.create_task(one(h)) for h in hosts]
 
+        done = 0
         done_alive = 0
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"probe:{scope}", disable=not sys.stderr.isatty()):
             rec: ProbeResult = await coro
+            done += 1
             if rec.alive:
                 done_alive += 1
             iso = now_iso()
@@ -425,6 +427,18 @@ async def _runner(
 
             # back-compat enrich map
             enrich_map = merge_enrich_map(enrich_map, rec, iso, uts)
+
+            # Custom progress for frontend CLI runner
+            if done % max(1, len(tasks) // 100) == 0 or done == len(tasks):
+                elapsed = time.time() - t_start
+                prog = {
+                    "total": len(tasks),
+                    "done": done,
+                    "alive": done_alive,
+                    "elapsed": round(elapsed, 1)
+                }
+                import json
+                print(f"[progress] {json.dumps(prog)}")
 
         # write atomically
         write_json_atomic(host_index_path, host_index)

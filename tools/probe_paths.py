@@ -345,9 +345,16 @@ async def _runner(
             prev = module_map.get(key)
             if prev and isinstance(prev, dict):
                 first_seen = prev.get("first_seen", first_seen_default)
+                old_methods = set(prev.get("supported_methods", []))
             else:
                 first_seen = first_seen_default
+                old_methods = set()
             rec["first_seen"] = first_seen
+            
+            # accumulate methods
+            new_method = rec.get("mode") or method or "GET"
+            old_methods.add(new_method.upper())
+            rec["supported_methods"] = sorted(list(old_methods))
 
             module_map[key] = rec
 
