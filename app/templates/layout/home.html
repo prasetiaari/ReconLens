@@ -4,29 +4,48 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-semibold">Targets</h1>
-  <button
-    class="btn btn-primary"
-    onclick="document.getElementById('addTargetModal').classList.remove('hidden')">
-    + Add target
-  </button>
+  <div class="flex items-center gap-2">
+    <button class="btn border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium px-4 py-2 rounded-lg transition shadow-sm" onclick="addDummyProgram()">
+      + Add Program
+    </button>
+    <button
+      class="btn btn-primary"
+      onclick="document.getElementById('addTargetModal').classList.remove('hidden')">
+      + Add target
+    </button>
+  </div>
 </div>
 
-{% if scopes %}
-  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-    {% for s in scopes %}
-      <div class="rounded-xl bg-white shadow hover:shadow-md transition p-4" data-scope="{{ s }}">
-        <div class="flex items-center justify-between">
-          <a href="/targets/{{ s }}" class="text-lg font-medium hover:underline">{{ s }}</a>
-          <button
-            aria-label="Delete"
-            class="rounded-md border px-2 py-1 text-[12px] text-slate-600 hover:bg-rose-50 hover:text-rose-700"
-            hx-get="/targets/{{ s }}/delete/confirmation"
-            hx-target="#modal-root"
-            hx-swap="innerHTML">
-            del
-          </button>
+{% if groups %}
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6" id="programsGrid">
+    {% for group_name, group_scopes in groups.items() %}
+      <!-- Program Card -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card">
+        <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+          <div class="flex items-center gap-2 overflow-hidden">
+            <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+            <h2 class="text-lg font-semibold text-slate-800 truncate" title="{{ group_name }}">{{ group_name }}</h2>
+          </div>
+          <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">{{ group_scopes|length }}</span>
         </div>
-        <a href="/targets/{{ s }}" class="text-sm text-slate-500 hover:underline">open report</a>
+        
+        <!-- Target List (Dropzone) -->
+        <div class="flex-1 space-y-2 min-h-[6rem] flex flex-col rounded-lg bg-slate-50/50 p-2 border border-transparent dropzone-list transition-colors duration-200" ondragover="handleDragOver(event)" ondrop="handleDrop(event, this)">
+          {% for s in group_scopes %}
+            <!-- Compact Target Item -->
+            <div class="group flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2.5 cursor-move hover:border-indigo-300 hover:shadow-sm transition" draggable="true" ondragstart="handleDragStart(event)" data-scope="{{ s }}">
+              <a href="/targets/{{ s }}" class="text-sm font-medium text-slate-700 group-hover:text-indigo-600 truncate mr-2 flex-1" title="{{ s }}">{{ s }}</a>
+              <button
+                aria-label="Delete"
+                class="shrink-0 text-slate-400 hover:text-rose-500 transition opacity-0 group-hover:opacity-100"
+                hx-get="/targets/{{ s }}/delete/confirmation"
+                hx-target="#modal-root"
+                hx-swap="innerHTML">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              </button>
+            </div>
+          {% endfor %}
+        </div>
       </div>
     {% endfor %}
   </div>
@@ -118,6 +137,127 @@
           if (modalRoot) modalRoot.innerHTML = '';
         }
       });
+
+      // UI Prototype: Drag and Drop
+      let draggedItem = null;
+
+      function handleDragStart(e) {
+        draggedItem = e.currentTarget;
+        e.dataTransfer.effectAllowed = 'move';
+        // Minor visual feedback
+        setTimeout(() => draggedItem.classList.add('opacity-50'), 0);
+      }
+
+      function handleDragOver(e) {
+        if (e.preventDefault) {
+          e.preventDefault(); // Necessary to allow dropping
+        }
+        e.dataTransfer.dropEffect = 'move';
+        
+        // Visual indicator for drop target
+        const container = e.currentTarget;
+        container.classList.add('bg-slate-100', 'border-indigo-300', 'border-dashed');
+        container.classList.remove('border-transparent');
+        
+        return false;
+      }
+
+      function handleDrop(e, container) {
+        if (e.stopPropagation) {
+          e.stopPropagation();
+        }
+        
+        container.classList.remove('bg-slate-100', 'border-indigo-300', 'border-dashed');
+        container.classList.add('border-transparent');
+        
+        if (draggedItem && draggedItem.parentElement !== container) {
+          const sourceContainer = draggedItem.parentElement;
+          container.appendChild(draggedItem);
+          
+          updateGroupCount(sourceContainer);
+          updateGroupCount(container);
+
+          // Get the scope and the new program name
+          const scope = draggedItem.dataset.scope;
+          const accordion = container.closest('.program-card');
+          const programName = accordion ? accordion.querySelector('h2').textContent.trim() : 'Default';
+
+          // Call API to persist
+          fetch('/targets/api/program/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: scope, program: programName })
+          }).catch(e => console.error("Failed to move target", e));
+        }
+        draggedItem.classList.remove('opacity-50');
+        return false;
+      }
+
+      document.addEventListener('dragend', function(e) {
+        if (draggedItem) {
+          draggedItem.classList.remove('opacity-50');
+        }
+        document.querySelectorAll('.dropzone-list').forEach(el => {
+          el.classList.remove('bg-slate-100', 'border-indigo-300', 'border-dashed');
+          el.classList.add('border-transparent');
+        });
+      });
+
+      document.addEventListener('dragleave', function(e) {
+        if (e.target.classList && e.target.classList.contains('dropzone-list')) {
+          e.target.classList.remove('bg-slate-100', 'border-indigo-300', 'border-dashed');
+          e.target.classList.add('border-transparent');
+        }
+      });
+
+      function updateGroupCount(gridContainer) {
+        const accordion = gridContainer.closest('.program-card');
+        if (accordion) {
+          const countBadge = accordion.querySelector('.group-count');
+          if (countBadge) {
+            const count = gridContainer.children.length;
+            countBadge.textContent = count;
+          }
+        }
+      }
+
+      async function addDummyProgram() {
+        const name = prompt("Enter new program name:");
+        if (!name) return;
+
+        try {
+          const res = await fetch('/targets/api/program/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+          });
+          if (res.ok) {
+            window.location.reload();
+            return;
+          }
+        } catch(e) {
+          console.error("Failed to add program", e);
+        }
+        
+        const container = document.getElementById('programsGrid');
+        if (!container) return;
+
+        const html = `
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card">
+            <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <div class="flex items-center gap-2 overflow-hidden">
+                <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                <h2 class="text-lg font-semibold text-slate-800 truncate" title="${name}">${name}</h2>
+              </div>
+              <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">0</span>
+            </div>
+            <div class="flex-1 space-y-2 min-h-[6rem] flex flex-col rounded-lg bg-slate-50/50 p-2 border border-transparent dropzone-list transition-colors duration-200" ondragover="handleDragOver(event)" ondrop="handleDrop(event, this)">
+            </div>
+          </div>
+        `;
+        // Fallback if page reload fails or if we want to do it purely frontend (though reload is better to sync)
+        // container.insertAdjacentHTML('afterbegin', html);
+      }
     </script>
   </div>
 </div>

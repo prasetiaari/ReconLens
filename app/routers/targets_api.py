@@ -74,3 +74,32 @@ def add_target(scope: str = Form(...), request: Request = None):
     resp = PlainTextResponse("Created", status_code=201)
     resp.headers["HX-Redirect"] = f"/targets/{scope_norm}"
     return resp
+
+from pydantic import BaseModel
+class MoveScopeRequest(BaseModel):
+    scope: str
+    program: str
+
+@router.post("/program/move")
+def move_scope_api(req: MoveScopeRequest, request: Request):
+    from app.services.programs import move_scope
+    settings = get_settings(request)
+    try:
+        move_scope(settings.OUTPUTS_DIR, req.scope, req.program)
+        return {"status": "success"}
+    except Exception as e:
+        return Response(str(e), status_code=500)
+
+class AddProgramRequest(BaseModel):
+    name: str
+
+@router.post("/program/add")
+def add_program_api(req: AddProgramRequest, request: Request):
+    from app.services.programs import ensure_program
+    settings = get_settings(request)
+    try:
+        ensure_program(settings.OUTPUTS_DIR, req.name.strip())
+        return {"status": "success"}
+    except Exception as e:
+        return Response(str(e), status_code=500)
+
