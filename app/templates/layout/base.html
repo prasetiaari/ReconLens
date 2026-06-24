@@ -14,6 +14,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <!-- xterm.js + FitAddon (lazy-loaded only when terminal is opened) -->
   <link id="xtermCss" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" media="print" onload="this.media='all'">
   {% block head_extra %}{% endblock %}
@@ -344,11 +346,24 @@
   window.openCliRunnerSidebar = openSidebar;
 
   document.addEventListener('click', function(e) {
-    const link = e.target.closest('a[href*="/collect/"]');
-    if (link) {
+    const collectLink = e.target.closest('a[href*="/collect/"]');
+    if (collectLink) {
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
       e.preventDefault();
-      openSidebar(link.href);
+      openSidebar(collectLink.href);
+      return;
+    }
+
+    const blankLink = e.target.closest('a[target="_blank"]');
+    if (blankLink) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      const w = 1024;
+      const h = 768;
+      const left = (screen.width - w) / 2;
+      const top = (screen.height - h) / 2;
+      window.open(blankLink.href, '_blank', `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`);
+      return;
     }
   });
 

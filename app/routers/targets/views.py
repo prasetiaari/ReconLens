@@ -79,7 +79,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     outputs_root = Path(settings.OUTPUTS_DIR)
     out_dir = outputs_root / scope
     path = out_dir / f"{mod}.txt"
-    if not path.exists():
+    if mod != "tagged" and not path.exists():
         raise HTTPException(status_code=404, detail="Module file not found")
 
     # --- query params ---
@@ -137,17 +137,30 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    query_parts = ["FROM module_urls u LEFT JOIN enrich_data e ON u.url = e.url WHERE u.module = ?"]
-    params = [mod]
+    if mod == "tagged":
+        query_parts = ["FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE 1=1"]
+        params = []
+    else:
+        query_parts = ["FROM module_urls u LEFT JOIN enrich_data e ON u.url = e.url LEFT JOIN user_notes n ON u.url = n.url WHERE u.module = ?"]
+        params = [mod]
 
     if q:
-        query_parts.append("AND u.url LIKE ?")
+        if mod == "tagged":
+            query_parts.append("AND n.url LIKE ?")
+        else:
+            query_parts.append("AND u.url LIKE ?")
         params.append(f"%{q}%")
     if host_f:
-        query_parts.append("AND e.host = ?")
+        if mod == "tagged":
+            query_parts.append("AND e.host = ?")
+        else:
+            query_parts.append("AND u.host = ?")
         params.append(host_f)
     if scheme_f:
-        query_parts.append("AND u.url LIKE ?")
+        if mod == "tagged":
+            query_parts.append("AND n.url LIKE ?")
+        else:
+            query_parts.append("AND u.url LIKE ?")
         params.append(f"{scheme_f}://%")
     if codes_set:
         placeholders = ','.join('?' for _ in codes_set)
@@ -182,7 +195,12 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     start = (page - 1) * page_size
 
     # Fetch rows
-    cur.execute(f"SELECT u.url, e.host, e.code, e.size, e.title, e.content_type, e.method, e.supported_methods, e.last_probe, e.alive {base_query} LIMIT ? OFFSET ?", params + [page_size, start])
+    if mod == "tagged":
+        select_cols = "n.url, e.host, e.code, e.size, e.title, e.content_type, e.method, e.supported_methods, e.last_probe, e.alive, n.tag, n.note"
+    else:
+        select_cols = "u.url, e.host, e.code, e.size, e.title, e.content_type, e.method, e.supported_methods, e.last_probe, e.alive, n.tag, n.note"
+        
+    cur.execute(f"SELECT {select_cols} {base_query} LIMIT ? OFFSET ?", params + [page_size, start])
     db_rows = cur.fetchall()
 
     filtered_rows = []
@@ -215,6 +233,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             "scheme": scheme_val,
             "method": row["method"],
             "supported_methods": supp,
+            "tag": row["tag"],
+            "note": row["note"],
         })
 
     conn.close()

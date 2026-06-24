@@ -14,14 +14,21 @@ def init_db(outputs_dir: str | Path, scope: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     
-    # Table for module texts (many-to-many relationship theoretically, though usually 1-to-many)
+    # Table for module texts
     cur.execute('''
         CREATE TABLE IF NOT EXISTS module_urls (
             url TEXT,
             module TEXT,
+            host TEXT,
             PRIMARY KEY (url, module)
         )
     ''')
+    
+    # Migration if host column is missing
+    cur.execute("PRAGMA table_info(module_urls)")
+    columns = [col[1] for col in cur.fetchall()]
+    if "host" not in columns:
+        cur.execute("ALTER TABLE module_urls ADD COLUMN host TEXT")
     
     # Table for enrich data
     cur.execute('''
@@ -44,6 +51,15 @@ def init_db(outputs_dir: str | Path, scope: str):
         CREATE TABLE IF NOT EXISTS sync_state (
             file_key TEXT PRIMARY KEY,
             mtime REAL
+        )
+    ''')
+    
+    # Table for user tags and notes
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS user_notes (
+            url TEXT PRIMARY KEY,
+            tag TEXT,
+            note TEXT
         )
     ''')
     
@@ -96,8 +112,15 @@ def sync_module(outputs_dir: str | Path, scope: str, module_name: str, force: bo
                 urls.add(s)
         
         # executemany needs tuples
-        data = [(u, module_name) for u in urls]
-        cur.executemany("INSERT INTO module_urls (url, module) VALUES (?, ?)", data)
+        data = []
+        for u in urls:
+            try:
+                p = urlparse(u)
+                h = p.netloc.lower() if p else ""
+            except Exception:
+                h = ""
+            data.append((u, module_name, h))
+        cur.executemany("INSERT INTO module_urls (url, module, host) VALUES (?, ?, ?)", data)
     
     _set_sync_mtime(cur, f"module_{module_name}", mtime)
     conn.commit()
@@ -157,6 +180,47 @@ def sync_enrich(outputs_dir: str | Path, scope: str, force: bool = False):
     conn.commit()
     conn.close()
 
+def sync_tags(outputs_dir: str | Path, scope: str, force: bool = False):
+    db_path = get_db_path(outputs_dir, scope)
+    tags_path = Path(outputs_dir) / scope / "__cache" / "user_tags.json"
+    
+    if not tags_path.exists():
+        return
+
+    mtime = get_mtime(tags_path)
+    
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    
+    last_mtime = _get_sync_mtime(cur, "user_tags")
+    if not force and mtime <= last_mtime:
+        conn.close()
+        return
+
+    try:
+        data_json = json.loads(tags_path.read_text(encoding="utf-8"))
+    except Exception:
+        data_json = {}
+
+    data_tuples = []
+    for url, meta in data_json.items():
+        data_tuples.append((
+            url,
+            meta.get("tag", ""),
+            meta.get("note", "")
+        ))
+    
+    # Clear and bulk insert
+    cur.execute("DELETE FROM user_notes")
+    cur.executemany('''
+        INSERT INTO user_notes (url, tag, note) 
+        VALUES (?, ?, ?)
+    ''', data_tuples)
+    
+    _set_sync_mtime(cur, "user_tags", mtime)
+    conn.commit()
+    conn.close()
+
 def sync_target(outputs_dir: str | Path, scope: str):
     """
     Main entry point to synchronize a target's text files with its SQLite DB.
@@ -172,3 +236,6 @@ def sync_target(outputs_dir: str | Path, scope: str):
             
     # Sync enrich data
     sync_enrich(outputs_dir, scope)
+
+    # Sync tags and notes
+    sync_tags(outputs_dir, scope)

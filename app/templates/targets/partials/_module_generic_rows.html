@@ -1,7 +1,11 @@
 <tbody id="rows">
   {% for r in rows %}
     <tr class="border-t">
-      <td class="px-4 py-2 font-mono text-[13px] break-all">{{ r.url }}</td>
+      <td class="px-4 py-2 font-mono text-[13px] break-all">
+        <a href="{{ r.open_url or r.url }}" target="_blank" class="text-blue-600 hover:underline hover:text-blue-800">
+          {{ r.url }}
+        </a>
+      </td>
       <td class="px-4 py-2">
         {% if r.status == 'alive' %}<span class="inline-flex items-center gap-1.5 text-green-600 text-xs font-medium uppercase"><div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>alive</span>
         {% elif r.status == 'dead' %}<span class="inline-flex items-center gap-1.5 text-rose-500 text-xs font-medium uppercase"><div class="w-1.5 h-1.5 rounded-full bg-rose-500"></div>dead</span>
@@ -35,21 +39,19 @@
       <td class="px-4 py-2 text-xs text-slate-500">
         {{ r.last_probe if r.last_probe else '-' }}
       </td>
-      <!--<td class="px-4 py-2">
-        {% if r.open_url %}
-          <a class="text-blue-700 underline" href="{{ r.open_url }}" target="_blank" rel="noopener">open</a>
-        {% else %}
-          <span class="text-slate-400">open</span>
-        {% endif %}
-      </td>-->
-      <td class="px-4 py-2">
-       
-          <button class="btn-open text-blue-600 hover:underline"
-                data-url="{{ r.open_url }}"
-                data-method="{{ r.method or 'GET' }}">
-          open
-        </button>
-        </td>
+      <td class="px-4 py-2 text-xs">
+        <div class="flex items-center gap-2 justify-end">
+          <button @click="toggleStar('{{ r.url }}')" class="p-1 rounded transition-colors {{ 'text-amber-400 hover:text-amber-500' if r.tag else 'text-slate-300 hover:text-amber-400' }}" title="Toggle Favorite">
+            <svg xmlns="http://www.w3.org/200.svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+            </svg>
+          </button>
+          
+          <button @click="openNoteModal('{{ r.url }}', '{{ (r.note or '') | escape }}')" class="p-1 rounded transition-colors {{ 'text-blue-500 hover:text-blue-600' if r.note else 'text-slate-300 hover:text-blue-400' }}" title="{{ r.note if r.note else 'Add Note' }}">
+            <svg xmlns="http://www.w3.org/200.svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+          </button>
+        </div>
+      </td>
     </tr>
   {% endfor %}
 </tbody>
