@@ -89,10 +89,17 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         page_size = 50
 
     http_class = (request.query_params.get("http_class") or "").strip().lower()
+    if http_class in ("(any)", "any"): http_class = ""
+        
     codes_str  = (request.query_params.get("codes") or "").strip()
     ctype_sub  = (request.query_params.get("ctype") or "").strip().lower()
+    
     scheme_f   = (request.query_params.get("scheme") or "").strip().lower()
+    if scheme_f in ("(any)", "any"): scheme_f = ""
+        
     host_f     = (request.query_params.get("host") or "").strip().lower()
+    if host_f in ("(any)", "any"): host_f = ""
+        
     method_filter = (request.query_params.get("method") or "").strip().upper()
     if method_filter in ("(ANY)", "ANY"):
         method_filter = ""
@@ -114,146 +121,104 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
             if tok.isdigit():
                 codes_set.add(int(tok))
 
-    # --- load corpus (+ apply q) & build host options for dropdown ---
-    raw_items: list[str] = []
-    host_options_set: set[str] = set()
-    with path.open("r", encoding="utf-8", errors="ignore") as f:
-        for ln in f:
-            s = (ln or "").strip()
-            if not s:
-                continue
-            if q and q.lower() not in s.lower():   # <-- apply substring search
-                continue
-            raw_items.append(s)
-            # collect host options from module file
-            try:
-                p = urlparse(s)
-                if p.netloc:
-                    host_options_set.add(p.netloc.lower())
-            except Exception:
-                pass
-    host_options = sorted(host_options_set)
-
     # --- enrich caches ---
-    enrich_host = load_enrich(outputs_root, scope) or {}
-    enrich_url  = load_url_enrich(outputs_root, scope) or {}
     discovery_host_options = all_hosts_for_scope(outputs_root, scope)
     wordlists = list_wordlists()
 
-    def pick(*vals):
-        for v in vals:
-            if v not in (None, "", "-", "None"):
-                return v
-        return None
+    # --- SQLite Database Sync and Query ---
+    from app.services.db_sync import sync_target, get_db_path
+    import sqlite3
+    
+    # Ensure DB is synced (very fast if unchanged)
+    sync_target(outputs_root, scope)
+    
+    db_path = get_db_path(outputs_root, scope)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
-    # --- filtering loop (before pagination) ---
-    filtered_rows: list[dict] = []
-    for s in raw_items:
-        try:
-            p = urlparse(s)
-        except Exception:
-            p = None
+    query_parts = ["FROM module_urls u LEFT JOIN enrich_data e ON u.url = e.url WHERE u.module = ?"]
+    params = [mod]
 
-        host = (p.netloc.lower() if p else "")
-        if host_f and host != host_f:
-            continue
+    if q:
+        query_parts.append("AND u.url LIKE ?")
+        params.append(f"%{q}%")
+    if host_f:
+        query_parts.append("AND e.host = ?")
+        params.append(host_f)
+    if scheme_f:
+        query_parts.append("AND u.url LIKE ?")
+        params.append(f"{scheme_f}://%")
+    if codes_set:
+        placeholders = ','.join('?' for _ in codes_set)
+        query_parts.append(f"AND e.code IN ({placeholders})")
+        params.extend(codes_set)
+    elif http_class in ("2xx", "3xx", "4xx", "5xx"):
+        cls_int = int(http_class[0])
+        query_parts.append("AND e.code >= ? AND e.code < ?")
+        params.extend([cls_int * 100, (cls_int + 1) * 100])
+    if ctype_sub:
+        query_parts.append("AND e.content_type LIKE ?")
+        params.append(f"%{ctype_sub}%")
+    if min_size is not None:
+        query_parts.append("AND e.size >= ?")
+        params.append(min_size)
+    if max_size is not None:
+        query_parts.append("AND e.size <= ?")
+        params.append(max_size)
+    if method_filter:
+        query_parts.append("AND (e.method = ? OR e.supported_methods LIKE ?)")
+        params.extend([method_filter, f'%"{method_filter}"%'])
 
-        rec_host = enrich_host.get(host) if host else None
-        cs = canon_url(s)
-        rec_url  = (
-            enrich_url.get(cs)
-            or (enrich_url.get(cs.rstrip("/")) if cs.endswith("/") else None)
-            or enrich_url.get(cs + "/")
-        )
+    base_query = " ".join(query_parts)
 
-        scheme = (
-            (rec_url.get("scheme") if rec_url else None)
-            or (rec_host.get("scheme") if rec_host else None)
-            or (p.scheme if p else "https")
-        )
-        if scheme_f and scheme_f not in ("", "(any)", "any"):
-            if scheme != scheme_f:
-                continue
+    # Get total count for pagination
+    cur.execute(f"SELECT COUNT(*) {base_query}", params)
+    total = cur.fetchone()[0]
 
-        method_val = pick(
-            rec_url.get("method") if rec_url else None,
-            rec_host.get("method") if rec_host else None,
-        )
-        supported_methods = pick(
-            rec_url.get("supported_methods") if rec_url else None,
-            rec_host.get("supported_methods") if rec_host else None,
-        ) or []
-        method_val_u = (str(method_val).upper() if method_val else "")
-        if method_filter and method_val_u != method_filter and method_filter not in [m.upper() for m in supported_methods]:
-            continue
-
-        code  = pick(rec_url.get("code") if rec_url else None,
-                     rec_host.get("code") if rec_host else None)
-        size  = pick(rec_url.get("size") if rec_url else None,
-                     rec_host.get("size") if rec_host else None)
-        title = pick(rec_url.get("title") if rec_url else None,
-                     rec_host.get("title") if rec_host else None)
-        ctype = pick(rec_url.get("content_type") if rec_url else None,
-                     rec_host.get("content_type") if rec_host else None)
-        lastp = pick(rec_url.get("last_probe") if rec_url else None,
-                     rec_host.get("last_probe") if rec_host else None)
-
-        try: code_i = int(code) if code is not None else None
-        except: code_i = None
-        try: size_i = int(size) if size is not None else None
-        except: size_i = None
-
-        # code / class filters
-        if codes_set and (code_i not in codes_set):
-            continue
-        if http_class in ("2xx","3xx","4xx","5xx"):
-            if code_i is None or (code_i // 100) != int(http_class[0]):
-                continue
-        # ctype substring
-        if ctype_sub and (not ctype or ctype_sub not in str(ctype).lower()):
-            continue
-        # size filters
-        if min_size is not None and (size_i is None or size_i < min_size):
-            continue
-        if max_size is not None and (size_i is None or size_i > max_size):
-            continue
-
-        final = s
-        if p and not p.scheme and scheme:
-            final = f"{scheme}://{host}{p.path or '/'}"
-            if p.query:
-                final += f"?{p.query}"
-            if p.fragment:
-                final += f"#{p.fragment}"
-
-        alive = (
-            rec_url.get("alive") if (rec_url and "alive" in rec_url) else
-            (rec_host.get("alive") if (rec_host and "alive" in rec_host) else None)
-        )
-        status = "alive" if alive is True else ("dead" if alive is False else "-")
-
-        filtered_rows.append({
-            "url": s,
-            "open_url": final,
-            "status": status,
-            "code": code_i,
-            "size": fmt_size_human(size_i),
-            "title": title,
-            "content_type": ctype,
-            "last_probe": fmt_last_probe(lastp),
-            "host": host,
-            "scheme": scheme,
-            "method": method_val_u or None,
-            "supported_methods": supported_methods,
-        })
-
-    # --- pagination ---
-    total = len(filtered_rows)
+    # Pagination logic
     total_pages = max(1, (total + page_size - 1) // page_size)
     page = min(page, total_pages)
     start = (page - 1) * page_size
-    end   = start + page_size
-    rows  = filtered_rows[start:end]
+
+    # Fetch rows
+    cur.execute(f"SELECT u.url, e.host, e.code, e.size, e.title, e.content_type, e.method, e.supported_methods, e.last_probe, e.alive {base_query} LIMIT ? OFFSET ?", params + [page_size, start])
+    db_rows = cur.fetchall()
+
+    filtered_rows = []
+    for row in db_rows:
+        try:
+            supp = json.loads(row["supported_methods"]) if row["supported_methods"] else []
+        except Exception:
+            supp = []
+
+        status = "alive" if row["alive"] == 1 else ("dead" if row["alive"] == 0 else "-")
+        # Extract scheme safely
+        url_val = row["url"]
+        scheme_val = ""
+        try:
+            if "://" in url_val:
+                scheme_val = url_val.split("://")[0]
+        except Exception:
+            pass
+
+        filtered_rows.append({
+            "url": url_val,
+            "open_url": url_val,
+            "status": status,
+            "code": row["code"],
+            "size": fmt_size_human(row["size"]),
+            "title": row["title"],
+            "content_type": row["content_type"],
+            "last_probe": fmt_last_probe(row["last_probe"]),
+            "host": row["host"],
+            "scheme": scheme_val,
+            "method": row["method"],
+            "supported_methods": supp,
+        })
+
+    conn.close()
+    rows = filtered_rows
 
     stats_pack = gather_stats(scope)
     stats = stats_pack["stats"]
@@ -273,6 +238,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "host": host_f or "",
     }
     extra_qs = "&" + urlencode(extra_qs_params)
+
+    host_options = discovery_host_options
 
     ctx = {
         "request": request,

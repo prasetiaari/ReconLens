@@ -385,6 +385,12 @@ async def _run_job(
         _save_job_to_disk(job_id, job)
         await q.put("event: status\ndata: done\n\n")
     finally:
+        try:
+            from app.services.db_sync import sync_target
+            await asyncio.to_thread(sync_target, outputs_root, scope)
+        except Exception as e:
+            print(f"[WARN] Failed to sync SQLite DB: {e}")
+            
         job["done"] = True
         _save_job_to_disk(job_id, job)
         await q.put("[[DONE]]")
@@ -427,6 +433,15 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
             key = "subdomains"
         update_last_scan(scope, key, out_dir.parent)
         await q.put(f"[summary] probe ({key}) complete\n")
+
+    elif tool in ("nuclei_takeover", "subzy_takeover", "subjack_takeover"):
+        target = out_dir / "takeovers.txt"
+        before = read_text_lines(target) if target.exists() else 0
+        merge_urls(target, tmp_urls)
+        after = read_text_lines(target)
+        added = max(0, after - before)
+        update_last_scan(scope, tool, out_dir.parent)
+        await q.put(f"[summary] captured={captured}  unique_takeovers={added}  total_now={after}\n")
 
     elif tool == "dirsearch":
         # resolve host
