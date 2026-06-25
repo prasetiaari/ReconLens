@@ -256,17 +256,21 @@ async def terminal_ws(websocket: WebSocket, scope: str, term_id: str):
                     continue
 
                 # Attempt JSON parse for control messages (e.g. resize)
+                is_resize = False
                 try:
                     ctrl = json.loads(raw)
-                    if ctrl.get("type") == "resize":
+                    if isinstance(ctrl, dict) and ctrl.get("type") == "resize":
                         set_winsize(
                             master_fd,
                             int(ctrl.get("rows", 24)),
                             int(ctrl.get("cols", 80)),
                         )
-                    continue
-                except (json.JSONDecodeError, TypeError, ValueError):
+                        is_resize = True
+                except Exception:
                     pass
+
+                if is_resize:
+                    continue
 
                 # Regular input: write raw bytes to PTY master
                 os.write(master_fd, raw if isinstance(raw, bytes) else raw.encode())

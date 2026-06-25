@@ -234,7 +234,8 @@ def build_tool_cmd(
 
     # --- internal build module ---
     if tool == "build":
-        return [py, "-m", "ReconLens",
+        main_py = Path(__file__).parent.parent.parent / "__main__.py"
+        return [py, str(main_py),
                 "--scope", scope,
                 "--input", str(out_dir / "urls.txt"),
                 "--out", str(out_dir)]
@@ -242,8 +243,9 @@ def build_tool_cmd(
     # --- probing ---
     if tool == "probe_subdomains":
         headers_dict = merged_headers_from_settings(cfg)
+        script_py = Path(__file__).parent.parent.parent / "tools" / "probe_subdomains.py"
         return [
-            py, "-m", "ReconLens.tools.probe_subdomains",
+            py, str(script_py),
             "--scope", scope,
             "--input", str(out_dir / "subdomains.txt"),
             "--outputs", str(outputs_root),
@@ -263,9 +265,13 @@ def build_tool_cmd(
         fallback   = out_dir / f"{mod}.txt"
         input_file = candidates if candidates.exists() else fallback
         headers_dict = merged_headers_from_settings(cfg)
+        
+        probe_sub_py = Path(__file__).parent.parent.parent / "tools" / "probe_subdomains.py"
+        probe_urls_py = Path(__file__).parent.parent.parent / "tools" / "probe_urls.py"
+        
         if module == "subdomains":
             return [
-                py, "-m", "ReconLens.tools.probe_subdomains",
+                py, str(probe_sub_py),
                 "--scope", scope,
                 "--input", str(out_dir / "subdomains.txt"),
                 "--outputs", str(outputs_root),
@@ -277,7 +283,7 @@ def build_tool_cmd(
                 "--ua", headers_dict.get("User-Agent", "ReconLens/1.0 (+probe)"),
             ]
         cmd = [
-            py, "-m", "ReconLens.tools.probe_urls",
+            py, str(probe_urls_py),
             "--scope", scope,
             "--outputs", str(outputs_root),
             "--input", str(input_file),
@@ -326,5 +332,35 @@ def build_tool_cmd(
     if tool == "findomain":
         exe = resolve_external_binary("findomain", cfg)
         return [exe, "--target", scope, "--quiet"]
+
+    if tool == "nuclei_takeover":
+        exe = resolve_external_binary("nuclei", cfg)
+        return [
+            exe,
+            "-tags", "takeover",
+            "-l", str(out_dir / "subdomains.txt"),
+            "-o", str(out_dir / "takeovers.txt"),
+            "-silent"
+        ]
+
+    if tool == "subzy_takeover":
+        exe = resolve_external_binary("subzy", cfg)
+        return [
+            exe,
+            "run",
+            "--targets", str(out_dir / "subdomains.txt"),
+            "--hide_fails"
+        ]
+
+    if tool == "subjack_takeover":
+        exe = resolve_external_binary("subjack", cfg)
+        return [
+            exe,
+            "-w", str(out_dir / "subdomains.txt"),
+            "-t", "100",
+            "-timeout", "30",
+            "-ssl",
+            "-o", str(out_dir / "takeovers.txt")
+        ]
 
     raise ValueError(f"Unknown tool: {tool}")

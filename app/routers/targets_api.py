@@ -30,9 +30,10 @@ def normalize_scope(raw: str) -> str:
     return v
 
 @router.post("/add")
-def add_target(scope: str = Form(...), request: Request = None):
+def add_target(scope: str = Form(...), program: str = Form(None), request: Request = None):
     from pathlib import Path
     import json, time
+    from app.services.programs import move_scope
 
     settings   = get_settings(request)
     scope_norm = normalize_scope(scope)
@@ -71,6 +72,12 @@ def add_target(scope: str = Form(...), request: Request = None):
     except Exception as e:
         return PlainTextResponse(f"Failed to create target: {e}", status_code=500)
 
+    if program and program != "Default":
+        try:
+            move_scope(settings.OUTPUTS_DIR, scope_norm, program)
+        except Exception:
+            pass
+
     resp = PlainTextResponse("Created", status_code=201)
     resp.headers["HX-Redirect"] = f"/targets/{scope_norm}"
     return resp
@@ -100,6 +107,45 @@ def add_program_api(req: AddProgramRequest, request: Request):
     try:
         ensure_program(settings.OUTPUTS_DIR, req.name.strip())
         return {"status": "success"}
+    except Exception as e:
+        return Response(str(e), status_code=500)
+
+class ReorderProgramRequest(BaseModel):
+    order: list[str]
+
+@router.post("/program/reorder")
+def reorder_program_api(req: ReorderProgramRequest, request: Request):
+    from app.services.programs import reorder_programs
+    settings = get_settings(request)
+    try:
+        reorder_programs(settings.OUTPUTS_DIR, req.order)
+        return {"status": "success"}
+    except Exception as e:
+        return Response(str(e), status_code=500)
+
+class DeleteProgramRequest(BaseModel):
+    name: str
+
+@router.post("/program/delete")
+def delete_program_api(req: DeleteProgramRequest, request: Request):
+    from app.services.programs import delete_program
+    settings = get_settings(request)
+    try:
+        delete_program(settings.OUTPUTS_DIR, req.name.strip())
+        return {"status": "success"}
+    except Exception as e:
+        return Response(str(e), status_code=500)
+
+class ToggleFavoriteRequest(BaseModel):
+    scope: str
+
+@router.post("/favorite/toggle")
+def toggle_favorite_api(req: ToggleFavoriteRequest, request: Request):
+    from app.services.favorites import toggle_favorite
+    settings = get_settings(request)
+    try:
+        is_fav = toggle_favorite(settings.OUTPUTS_DIR, req.scope)
+        return {"status": "success", "is_favorite": is_fav}
     except Exception as e:
         return Response(str(e), status_code=500)
 

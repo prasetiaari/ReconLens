@@ -7,6 +7,7 @@ import os
 import re
 import socket
 import sys
+import time
 from argparse import ArgumentParser
 from contextlib import suppress
 from dataclasses import dataclass
@@ -364,6 +365,7 @@ async def _runner(
     if_head_then_get: bool,
     headers: dict[str, str],
 ):
+    t_start = time.time()
     cache_dir = outputs_dir / scope / CACHE_DIRNAME
     cache_dir.mkdir(parents=True, exist_ok=True)
 

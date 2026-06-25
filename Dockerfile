@@ -10,7 +10,10 @@ ENV CGO_ENABLED=0
 # Compile Go-based security tools
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
     && go install -v github.com/lc/gau/v2/cmd/gau@latest \
-    && go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
+    && go install -v github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest \
+    && go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
+    && go install -v github.com/LukaSikic/subzy@latest \
+    && go install -v github.com/haccer/subjack@latest
 
 # Download and extract precompiled OWASP Amass to save memory and compile time
 RUN ARCH=$(uname -m) && \
@@ -55,6 +58,9 @@ COPY --from=go-builder /go/bin/gau /usr/local/bin/gau
 COPY --from=go-builder /go/bin/urlfinder /usr/local/bin/urlfinder
 COPY --from=go-builder /go/bin/amass /usr/local/bin/amass
 COPY --from=go-builder /go/bin/findomain /usr/local/bin/findomain
+COPY --from=go-builder /go/bin/nuclei /usr/local/bin/nuclei
+COPY --from=go-builder /go/bin/subzy /usr/local/bin/subzy
+COPY --from=go-builder /go/bin/subjack /usr/local/bin/subjack
 
 # Set working directory inside the container
 WORKDIR /app

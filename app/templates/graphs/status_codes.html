@@ -348,7 +348,9 @@
     $('#drill-sub').textContent   = `— ${data.meta.total} rows (page ${data.meta.page}/${data.meta.pages})`;
 
     const tbody = $('#drill-rows');
-    tbody.innerHTML = data.rows.map(r => `
+    tbody.innerHTML = data.rows.map(r => {
+      const color = r.code >= 500 ? '#ef4444' : (r.code >= 400 ? '#f59e0b' : (r.code >= 300 ? '#0ea5e9' : '#16a34a'));
+      return `
       <tr class="border-t align-top">
         <td class="px-3 py-2 font-mono text-[13px] whitespace-pre-wrap break-all"><a href="${r.url}" target="_blank" class="text-blue-700 underline">${r.url}</a></td>
         <td class="px-3 py-2 font-mono text-[12px]">${r.host ?? '-'}</td>
@@ -358,7 +360,7 @@
         <td class="px-3 py-2 text-[12px]">${r.content_type ?? '-'}</td>
         <td class="px-3 py-2 text-[12px]">${r.last_probe ?? '-'}</td>
       </tr>
-    `).join('');
+    `}).join('');
 
     // pagination
     $('#drill-prev').onclick = () => {

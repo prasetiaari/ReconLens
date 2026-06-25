@@ -346,9 +346,13 @@ async def _run_job(
                 log_f.write(line + "\n"); log_f.flush()
                 raw_f.write(line + "\n"); raw_f.flush()
 
-                # Capture heuristics (tetap seperti sebelumnya)
+                # Capture heuristics
                 if tool == "dirsearch":
                     pass
+                elif tool in ("nuclei_takeover", "subzy_takeover", "subjack_takeover"):
+                    if line.strip():
+                        urls_f.write(line.strip() + "\n"); urls_f.flush()
+                        captured += 1
                 elif "://" in line or tool in ("subfinder", "amass", "findomain"):
                     if line.strip():
                         urls_f.write(line.strip() + "\n"); urls_f.flush()
@@ -437,7 +441,8 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
     elif tool in ("nuclei_takeover", "subzy_takeover", "subjack_takeover"):
         target = out_dir / "takeovers.txt"
         before = read_text_lines(target) if target.exists() else 0
-        merge_urls(target, tmp_urls)
+        from app.routers.targets.utils import merge_lines
+        merge_lines(target, tmp_urls)
         after = read_text_lines(target)
         added = max(0, after - before)
         update_last_scan(scope, tool, out_dir.parent)

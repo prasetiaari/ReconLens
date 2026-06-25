@@ -40,3 +40,25 @@ def move_scope(outputs_dir: Path, scope: str, to_program: str):
         data[to_program].append(scope)
         
     save_programs(outputs_dir, data)
+
+def delete_program(outputs_dir: Path, name: str):
+    data = load_programs(outputs_dir)
+    if name in data:
+        del data[name]
+        save_programs(outputs_dir, data)
+
+def reorder_programs(outputs_dir: Path, new_order: list[str]):
+    data = load_programs(outputs_dir)
+    reordered_data = {}
+    
+    # First, add programs in the specified new order
+    for prog_name in new_order:
+        if prog_name in data:
+            reordered_data[prog_name] = data[prog_name]
+            
+    # Then append any remaining programs that were not in new_order
+    for prog_name in data:
+        if prog_name not in reordered_data:
+            reordered_data[prog_name] = data[prog_name]
+            
+    save_programs(outputs_dir, reordered_data)

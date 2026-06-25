@@ -1,0 +1,203 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Viewer - {{ scope }}{% endblock %}
+
+{% block content %}
+<div class="h-[calc(100vh-4rem)] flex flex-col bg-slate-50" x-data="viewerApp()">
+    
+    <!-- Top Address Bar -->
+    <div class="bg-white border-b p-3 flex items-center gap-2 shadow-sm z-10">
+        <select x-model="method" class="input py-1.5 px-3 bg-slate-100 border-none font-mono text-sm focus:ring-0 cursor-pointer rounded-md">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>PATCH</option>
+            <option>DELETE</option>
+            <option>OPTIONS</option>
+            <option>HEAD</option>
+        </select>
+        
+        <input type="text" x-model="url" @keydown.enter="sendRequest()" class="input flex-1 py-1.5 px-4 font-mono text-sm border-slate-300 focus:border-blue-500 focus:ring-blue-500 rounded-md" placeholder="https://...">
+        
+        <button @click="navigator.clipboard.writeText(url); alert('URL Copied to clipboard! Paste it in your real Chrome browser.')" class="btn bg-slate-200 hover:bg-slate-300 text-slate-700 py-1.5 px-3 rounded-md font-medium flex items-center gap-1" title="Copy to Clipboard">
+            <svg xmlns="http://www.w3.org/200.svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+            Copy
+        </button>
+
+        <button @click="sendRequest()" :disabled="loading" class="btn btn-primary py-1.5 px-6 rounded-md font-medium">
+            <span x-show="!loading">Send</span>
+            <span x-show="loading" class="flex items-center gap-2">
+                <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/200.svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </span>
+        </button>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- Left Panel: Request Configuration -->
+        <div class="w-1/3 min-w-[300px] max-w-[500px] border-r bg-white flex flex-col" x-show="showSidebar">
+            <div class="border-b px-4 py-2 bg-slate-50 font-medium text-sm text-slate-700 flex justify-between items-center">
+                <span>Request Config</span>
+                <button @click="showSidebar = false" class="text-slate-400 hover:text-slate-600">
+                    <svg xmlns="http://www.w3.org/200.svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">Headers (JSON)</label>
+                    <textarea x-model="headers" class="input w-full font-mono text-[12px] h-32 bg-slate-50" placeholder='{"User-Agent": "ReconLens/1.0", "Cookie": "..."}'></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">Body</label>
+                    <textarea x-model="body" class="input w-full font-mono text-[12px] h-48 bg-slate-50" placeholder="Request body here..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Results (Visual & Raw) -->
+        <div class="flex-1 flex flex-col min-w-0 bg-slate-50 relative">
+            <button x-show="!showSidebar" @click="showSidebar = true" class="absolute top-3 left-3 z-20 bg-white border shadow-sm p-1.5 rounded text-slate-500 hover:text-slate-700">
+                <svg xmlns="http://www.w3.org/200.svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+            </button>
+
+            <!-- Result Tabs -->
+            <div class="flex border-b bg-slate-100 px-4 pt-2 gap-1 overflow-x-auto shrink-0 pl-12">
+                <button @click="activeTab = 'visual'" :class="activeTab === 'visual' ? 'bg-white border-t border-x text-blue-600 font-medium' : 'text-slate-500 hover:bg-slate-200'" class="px-4 py-2 text-sm rounded-t-md transition-colors border-b-0">
+                    Visual (Iframe)
+                </button>
+                <button @click="activeTab = 'raw'" :class="activeTab === 'raw' ? 'bg-white border-t border-x text-blue-600 font-medium' : 'text-slate-500 hover:bg-slate-200'" class="px-4 py-2 text-sm rounded-t-md transition-colors border-b-0 flex items-center gap-2">
+                    Raw Response
+                    <span x-show="resStatus" class="px-1.5 py-0.5 rounded text-[10px] font-mono text-white" :class="resStatus < 300 ? 'bg-green-500' : (resStatus < 400 ? 'bg-blue-500' : 'bg-red-500')" x-text="resStatus"></span>
+                </button>
+            </div>
+
+            <div class="flex-1 relative bg-white">
+                
+                <!-- Visual Tab -->
+                <div x-show="activeTab === 'visual'" class="absolute inset-0">
+                    <iframe :src="iframeUrl" class="w-full h-full border-0 bg-white" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+                    
+                    <div x-show="!iframeUrl" class="absolute inset-0 flex items-center justify-center text-slate-400 flex-col gap-2 p-8 text-center">
+                        <svg xmlns="http://www.w3.org/200.svg" class="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                        </svg>
+                        <p>Enter a URL and click Send to view</p>
+                        <p class="text-xs mt-4 text-slate-400 max-w-md">
+                            <strong>Note:</strong> Many modern apps (like target SPAs) strictly block iframe rendering via X-Frame-Options or CORS.<br>
+                            If the preview is blank or shows "refused to connect", please rely on the <strong>Raw Response</strong> tab or use the <strong>Copy</strong> button to open the URL in your real Chrome browser!
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Raw Tab -->
+                <div x-show="activeTab === 'raw'" class="absolute inset-0 overflow-y-auto p-4 bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] whitespace-pre-wrap break-words">
+                    <div x-show="!resRaw" class="flex h-full items-center justify-center text-slate-500">
+                        No response data yet.
+                    </div>
+                    <div x-show="resRaw" x-text="resRaw"></div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function viewerApp() {
+    return {
+        url: '{{ initial_url|safe }}',
+        method: 'GET',
+        headers: '{\n  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"\n}',
+        body: '',
+        
+        loading: false,
+        showSidebar: false,
+        activeTab: 'visual', // 'visual' or 'raw'
+        
+        iframeUrl: '',
+        resStatus: null,
+        resRaw: '',
+        
+        init() {
+            if (this.url) {
+                this.sendRequest();
+            }
+        },
+        
+        async sendRequest() {
+            if (!this.url) return;
+            
+            // Basic normalization
+            if (!this.url.startsWith('http')) {
+                this.url = 'http://' + this.url;
+            }
+            
+            this.loading = true;
+            this.resStatus = null;
+            this.resRaw = 'Loading...';
+            
+            // Set iframe URL immediately
+            this.iframeUrl = this.url;
+            
+            try {
+                let parsedHeaders = {};
+                if (this.headers.trim()) {
+                    try {
+                        parsedHeaders = JSON.parse(this.headers);
+                    } catch (e) {
+                        alert("Invalid JSON in headers");
+                        this.loading = false;
+                        return;
+                    }
+                }
+                
+                const response = await fetch(`/targets/{{ scope }}/viewer/proxy`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: this.url,
+                        method: this.method,
+                        headers: parsedHeaders,
+                        body: this.body
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    this.resStatus = data.status_code;
+                    
+                    // Format raw response text
+                    let rawStr = `HTTP/1.1 ${data.status_code}\n`;
+                    for (const [k, v] of Object.entries(data.headers || {})) {
+                        rawStr += `${k}: ${v}\n`;
+                    }
+                    rawStr += `\n${data.body}`;
+                    this.resRaw = rawStr;
+                    
+                } else {
+                    this.resStatus = data.status_code || 500;
+                    this.resRaw = `Proxy Error: ${data.error || JSON.stringify(data)}`;
+                }
+                
+            } catch (err) {
+                console.error("Proxy request failed", err);
+                this.resStatus = 0;
+                this.resRaw = `Network Error: ${err.message}`;
+            } finally {
+                this.loading = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

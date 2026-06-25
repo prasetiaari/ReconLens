@@ -68,6 +68,28 @@ def merge_urls(target: Path, incoming: Path):
     tmp.write_text("\n".join(sorted(seen)) + "\n", encoding="utf-8")
     tmp.replace(target)
 
+def merge_lines(target: Path, incoming: Path):
+    """Merge two text lists generically (unique lines, case-sensitive, no URL check)."""
+    seen = set()
+    if target.exists():
+        for ln in target.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = ln.strip()
+            if s:
+                seen.add(s)
+
+    if incoming.exists():
+        for ln in incoming.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = ln.strip()
+            if s and s not in seen:
+                seen.add(s)
+
+    tmp = target.with_suffix(".tmp")
+    if seen:
+        tmp.write_text("\n".join(sorted(seen)) + "\n", encoding="utf-8")
+    else:
+        tmp.write_text("", encoding="utf-8")
+    tmp.replace(target)
+
 
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 

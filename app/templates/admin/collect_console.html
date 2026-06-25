@@ -50,6 +50,12 @@
 {%- elif tool == 'dirsearch' -%}
     dirsearch -u {{ host or 'https://sub.example.com' }} --format=simple --full-url --crawl 0 --random-agent --quiet -w {{wordlist}}
     
+{%- elif tool == 'nuclei_takeover' -%}
+    nuclei -tags takeover -l outputs/{{ scope }}/subdomains.txt -o outputs/{{ scope }}/takeovers.txt -silent
+{%- elif tool == 'subzy_takeover' -%}
+    subzy run --targets outputs/{{ scope }}/subdomains.txt --hide_fails
+{%- elif tool == 'subjack_takeover' -%}
+    subjack -w outputs/{{ scope }}/subdomains.txt -t 100 -timeout 30 -ssl -o outputs/{{ scope }}/takeovers.txt
 {%- else -%}
 # unknown tool
 {%- endif %}

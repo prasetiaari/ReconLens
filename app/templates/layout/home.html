@@ -20,29 +20,68 @@
   <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6" id="programsGrid">
     {% for group_name, group_scopes in groups.items() %}
       <!-- Program Card -->
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card" data-program="{{ group_name }}">
         <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
           <div class="flex items-center gap-2 overflow-hidden">
+            <!-- Drag Handle -->
+            <div class="cursor-grab hover:text-indigo-500 text-slate-300 program-drag-handle px-1" title="Drag to reorder">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M4 4h2v2H4V4zm4 0h2v2H8V4zm4 0h2v2h-2V4zM4 8h2v2H4V8zm4 0h2v2H8V8zm4 0h2v2h-2V8zM4 12h2v2H4v-2zm4 0h2v2H8v-2zm4 0h2v2h-2v-2z"/></svg>
+            </div>
             <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
             <h2 class="text-lg font-semibold text-slate-800 truncate" title="{{ group_name }}">{{ group_name }}</h2>
           </div>
-          <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">{{ group_scopes|length }}</span>
+          <div class="flex items-center gap-3">
+            <div class="hidden sm:flex items-center text-[11px] text-slate-400 font-medium tracking-wide mr-2 gap-3">
+              <span title="Total Subdomains"><span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['subs']) if group_name in program_stats else 0 }}</span> subs</span>
+              <span title="Total URLs"><span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['urls']) if group_name in program_stats else 0 }}</span> urls</span>
+            </div>
+            <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">{{ group_scopes|length }}</span>
+            {% if group_name != 'Default' %}
+              <button class="text-slate-400 hover:text-rose-500 transition" title="Delete Program" onclick="deleteProgram('{{ group_name }}')">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              </button>
+            {% endif %}
+          </div>
         </div>
         
         <!-- Target List (Dropzone) -->
-        <div class="flex-1 space-y-2 min-h-[6rem] flex flex-col rounded-lg bg-slate-50/50 p-2 border border-transparent dropzone-list transition-colors duration-200" ondragover="handleDragOver(event)" ondrop="handleDrop(event, this)">
+        <div class="flex-1 space-y-1 min-h-[6rem] max-h-[400px] overflow-y-auto flex flex-col rounded-md bg-slate-50/50 p-1.5 border border-transparent dropzone-list transition-colors duration-200" ondragover="handleDragOver(event)" ondrop="handleDrop(event, this)">
           {% for s in group_scopes %}
             <!-- Compact Target Item -->
-            <div class="group flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2.5 cursor-move hover:border-indigo-300 hover:shadow-sm transition" draggable="true" ondragstart="handleDragStart(event)" data-scope="{{ s }}">
-              <a href="/targets/{{ s }}" class="text-sm font-medium text-slate-700 group-hover:text-indigo-600 truncate mr-2 flex-1" title="{{ s }}">{{ s }}</a>
-              <button
-                aria-label="Delete"
-                class="shrink-0 text-slate-400 hover:text-rose-500 transition opacity-0 group-hover:opacity-100"
-                hx-get="/targets/{{ s }}/delete/confirmation"
-                hx-target="#modal-root"
-                hx-swap="innerHTML">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-              </button>
+            <div class="group flex items-center justify-between bg-white border border-slate-200 rounded-md px-2.5 py-1.5 cursor-move hover:border-indigo-300 hover:shadow-sm transition" draggable="true" ondragstart="handleDragStart(event)" data-scope="{{ s }}">
+              <div class="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+                <button onclick="toggleFavorite('{{ s }}')" class="shrink-0 focus:outline-none" title="Toggle Favorite">
+                  <svg class="w-3.5 h-3.5 transition-colors duration-200 {{ 'text-amber-400 fill-amber-400' if s in favorites else 'text-slate-300 hover:text-amber-400' }}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                  </svg>
+                </button>
+                <div class="flex items-center min-w-0 gap-2">
+                  <a href="/targets/{{ s }}" class="text-[13px] font-medium text-slate-700 group-hover:text-indigo-600 truncate" title="{{ s }}">{{ s }}</a>
+                  {% if s in scope_stats and scope_stats[s]['last_scan'] %}
+                    <span class="text-[9px] text-slate-400 shrink-0 hidden sm:inline-block" title="Last Activity">{{ scope_stats[s]['last_scan'] }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                {% if s in scope_stats %}
+                  <div class="hidden xl:flex items-center gap-1 mr-1">
+                    {% if scope_stats[s]['subs'] > 0 %}
+                      <span class="text-[9px] bg-slate-50 text-slate-500 px-1 py-0.5 rounded border border-slate-100" title="Subdomains">{{ '{:,}'.format(scope_stats[s]['subs']) }}</span>
+                    {% endif %}
+                    {% if scope_stats[s]['urls'] > 0 %}
+                      <span class="text-[9px] bg-slate-50 text-slate-500 px-1 py-0.5 rounded border border-slate-100" title="URLs">{{ '{:,}'.format(scope_stats[s]['urls']) }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+                <button
+                  aria-label="Delete"
+                  class="shrink-0 text-slate-400 hover:text-rose-500 transition opacity-0 group-hover:opacity-100"
+                  hx-get="/targets/{{ s }}/delete/confirmation"
+                  hx-target="#modal-root"
+                  hx-swap="innerHTML">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+              </div>
             </div>
           {% endfor %}
         </div>
@@ -86,6 +125,19 @@
         <p class="text-xs text-slate-500 mt-1">
           Domain only (no http://). Subdomains are allowed.
         </p>
+      </div>
+
+      <!-- Select Program -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">Program (Optional)</label>
+        <select name="program" class="input w-full bg-white">
+          <option value="">Default</option>
+          {% for group_name in groups.keys() %}
+            {% if group_name != 'Default' %}
+              <option value="{{ group_name }}">{{ group_name }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
       </div>
 
       <div id="addTargetErrors" class="text-sm text-rose-600"></div>
@@ -238,26 +290,72 @@
         } catch(e) {
           console.error("Failed to add program", e);
         }
-        
-        const container = document.getElementById('programsGrid');
-        if (!container) return;
-
-        const html = `
-          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card">
-            <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-              <div class="flex items-center gap-2 overflow-hidden">
-                <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-                <h2 class="text-lg font-semibold text-slate-800 truncate" title="${name}">${name}</h2>
-              </div>
-              <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">0</span>
-            </div>
-            <div class="flex-1 space-y-2 min-h-[6rem] flex flex-col rounded-lg bg-slate-50/50 p-2 border border-transparent dropzone-list transition-colors duration-200" ondragover="handleDragOver(event)" ondrop="handleDrop(event, this)">
-            </div>
-          </div>
-        `;
-        // Fallback if page reload fails or if we want to do it purely frontend (though reload is better to sync)
-        // container.insertAdjacentHTML('afterbegin', html);
       }
+
+      async function deleteProgram(name) {
+        if (!confirm(`Are you sure you want to delete program "${name}"? Targets will be moved to Default.`)) return;
+        
+        try {
+          const res = await fetch('/targets/api/program/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+          });
+          if (res.ok) {
+            window.location.reload();
+          }
+        } catch(e) {
+          console.error("Failed to delete program", e);
+        }
+      }
+
+      async function toggleFavorite(scope) {
+        try {
+          const res = await fetch('/targets/api/favorite/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: scope })
+          });
+          if (res.ok) {
+            window.location.reload();
+          }
+        } catch(e) {
+          console.error("Failed to toggle favorite", e);
+        }
+      }
+
+      // Initialize SortableJS for Program Cards
+      document.addEventListener('DOMContentLoaded', () => {
+        const programsGrid = document.getElementById('programsGrid');
+        if (programsGrid && typeof Sortable !== 'undefined') {
+          new Sortable(programsGrid, {
+            handle: '.program-drag-handle',
+            animation: 150,
+            ghostClass: 'bg-slate-50',
+            onEnd: async function(evt) {
+              const order = [];
+              document.querySelectorAll('.program-card').forEach(card => {
+                const progName = card.getAttribute('data-program');
+                if (progName) {
+                  order.push(progName);
+                }
+              });
+
+              if (order.length > 0) {
+                try {
+                  await fetch('/targets/api/program/reorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: order })
+                  });
+                } catch(e) {
+                  console.error("Failed to reorder programs", e);
+                }
+              }
+            }
+          });
+        }
+      });
     </script>
   </div>
 </div>

@@ -52,6 +52,9 @@
   <!-- untuk tombol reprobe/redirsearch/-->
 <div class="col-span-6 md:col-span-2 flex gap-3 items-end justify-end">
     <!-- trigger modal collect -->
+    <button id="takeoverBtn" type="button" class="text-xs text-rose-600 hover:underline">
+      scan takeovers
+    </button>
     <button id="collectBtn" type="button" class="ml-auto text-xs text-blue-600 hover:underline">
       (re)collect subdomains
     </button>
@@ -84,8 +87,8 @@
     {% set final_url = (rec.get('scheme') ~ '://' ~ host) if rec and rec.get('scheme') else ('https://' ~ host) %}
     <tr class="border-t">
       <!-- Host URL -->
-      <td class="px-4 py-2 font-mono text-[13px]">
-        <a href="{{ final_url }}" target=_blank>{{ final_url }}</a>
+      <td class="px-4 py-2 font-mono text-[13px] break-all">
+        <a href="{{ final_url }}" target="_blank" class="text-blue-600 hover:underline hover:text-blue-800">{{ final_url }}</a>
       </td>
 
       <!-- Status -->
@@ -141,11 +144,6 @@
               data-host="{{ host }}"
               data-scope="{{ scope }}">
         <option value="">Action</option>
-
-        {# Open pakai scheme dari enrich kalau ada, fallback https #}
-        {% set open_url = (rec.get('scheme') ~ '://' ~ host) if rec and rec.get('scheme') else ('https://' ~ host) %}
-        <option value="open" data-url="{{ open_url }}">Open</option>
-
         <option value="dirsearch">Dirsearch</option>
       </select>
     </td>
@@ -232,23 +230,90 @@
   </div>
 </div>
 
+{# =========================
+   MODAL: Scan Takeovers (per-tool buttons)
+   ========================= #}
+<div id="takeoverModal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="absolute inset-0 bg-black/40"></div>
+  <div class="relative mx-auto mt-20 w-[92%] max-w-2xl rounded-xl bg-white shadow-lg border border-slate-200">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <div class="text-lg font-semibold text-slate-800">Scan Takeovers</div>
+      <button id="takeoverClose" class="text-slate-400 hover:text-slate-600" aria-label="Close">✕</button>
+    </div>
+
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-slate-600">
+        Select a tool to scan for subdomain takeovers on <span class="font-mono">{{ scope }}</span>:
+      </p>
+
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Nuclei (Takeover Tags)</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.nuclei_takeover if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <button onclick="window.openCliRunnerSidebar('/targets/{{ scope }}/collect/nuclei_takeover'); document.getElementById('takeoverClose').click()" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</button>
+      </div>
+
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Subzy</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.subzy_takeover if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <button onclick="window.openCliRunnerSidebar('/targets/{{ scope }}/collect/subzy_takeover'); document.getElementById('takeoverClose').click()" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</button>
+      </div>
+
+      <div class="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div class="font-medium">Subjack</div>
+          <div class="text-slate-400 text-xs mt-1">
+            last scan: {{ (last_scans.subjack_takeover if last_scans is defined else None) or '—' }}
+          </div>
+        </div>
+        <button onclick="window.openCliRunnerSidebar('/targets/{{ scope }}/collect/subjack_takeover'); document.getElementById('takeoverClose').click()" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm">Run</button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Tip: The results will be cumulatively saved to <code>takeovers.txt</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   const modal   = document.getElementById('collectModal');
   const openBtn = document.getElementById('collectBtn');
   const closeBtn= document.getElementById('collectClose');
 
+  const tModal   = document.getElementById('takeoverModal');
+  const tOpenBtn = document.getElementById('takeoverBtn');
+  const tCloseBtn= document.getElementById('takeoverClose');
+
   function open(){ modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false'); }
   function close(){ modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); }
 
+  function tOpen(){ tModal.classList.remove('hidden'); tModal.setAttribute('aria-hidden','false'); }
+  function tClose(){ tModal.classList.add('hidden'); tModal.setAttribute('aria-hidden','true'); }
+
   openBtn?.addEventListener('click', open);
   closeBtn?.addEventListener('click', close);
+  
+  tOpenBtn?.addEventListener('click', tOpen);
+  tCloseBtn?.addEventListener('click', tClose);
 
   modal?.addEventListener('click', (e)=>{
     if (e.target === modal || (e.target.classList && e.target.classList.contains('bg-black/40'))) close();
   });
+  tModal?.addEventListener('click', (e)=>{
+    if (e.target === tModal || (e.target.classList && e.target.classList.contains('bg-black/40'))) tClose();
+  });
   document.addEventListener('keydown', (e)=>{
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    if (e.key === 'Escape' && !tModal.classList.contains('hidden')) tClose();
   });
 })();
 </script>
@@ -266,7 +331,11 @@
       // ambil URL dari option (sudah berisi scheme yang tepat)
       const opt = sel.querySelector('option[value="open"]');
       const url = opt && opt.dataset.url ? opt.dataset.url : ("https://" + host);
-      window.open(url, "_blank", "noopener");
+      const w = 1024;
+      const h = 768;
+      const left = (screen.width - w) / 2;
+      const top = (screen.height - h) / 2;
+      window.open(url, "_blank", `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`);
       return;
     }
 

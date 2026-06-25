@@ -67,7 +67,7 @@
 {% set new_modules = [
 'auth_login','admin_panel','api','upload','download_dump',
 'debug_dev','docs_swagger','config_backup_source','sensitive_functionality',
-'monitoring','payments','static_assets','file_disclosure','dirsearch','other','probe_paths'
+'monitoring','payments','static_assets','file_disclosure','dirsearch','takeovers','other','probe_paths'
 ] %}
 {% set has_any_new = false %}
 {% for st in stats %}
@@ -238,7 +238,7 @@ CARDS
   {% set order = [
   'auth_login','admin_panel','api','upload','download_dump',
   'debug_dev','docs_swagger','config_backup_source','sensitive_functionality',
-  'monitoring','payments','static_assets','file_disclosure','other'
+  'monitoring','payments','static_assets','file_disclosure','takeovers','other'
   ] %}
 
   {% for key in order %}

@@ -122,7 +122,6 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
                 codes_set.add(int(tok))
 
     # --- enrich caches ---
-    discovery_host_options = all_hosts_for_scope(outputs_root, scope)
     wordlists = list_wordlists()
 
     # --- SQLite Database Sync and Query ---
@@ -136,6 +135,14 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
+
+    # Populate Host Dropdown dynamically from SQLite
+    if mod == "tagged":
+        cur.execute("SELECT DISTINCT e.host FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE e.host IS NOT NULL AND e.host != '' ORDER BY e.host")
+    else:
+        cur.execute("SELECT DISTINCT host FROM module_urls WHERE module = ? AND host IS NOT NULL AND host != '' ORDER BY host", (mod,))
+    
+    discovery_host_options = [r["host"] for r in cur.fetchall()]
 
     if mod == "tagged":
         query_parts = ["FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE 1=1"]
