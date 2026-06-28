@@ -95,34 +95,55 @@ _HOST_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 
 def merge_hostnames(target: Path, incoming: Path):
-    """Merge hostnames (tolerant: also extracts host from full URLs)."""
-    def normalize(line: str) -> Optional[str]:
+    """Merge hostnames (tolerant: also extracts host from full URLs and handles amass output)."""
+    
+    # Regex for a clean host format, but without anchors so we can search for it in a messy line.
+    _EXTRACT_HOST_RE = re.compile(r"([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})")
+    
+    def normalize(line: str) -> List[str]:
         s = line.strip()
         if not s:
-            return None
+            return []
+        
+        # Fast path: simple lines like "sub.domain.com"
+        if "://" not in s and " " not in s:
+            h = s.lower().strip(".")
+            if _HOST_RE.match(h):
+                return [h]
+            return []
+            
         if "://" in s:
             try:
-                h = urlparse(s).netloc.lower()
+                h = urlparse(s).netloc.lower().strip(".")
+                if _HOST_RE.match(h):
+                    return [h]
             except Exception:
-                return None
-        else:
-            h = s.lower()
-        h = h.strip(".")
-        if not _HOST_RE.match(h):
-            return None
-        return h
+                pass
+                
+        # Fallback/amass path: extract anything that looks like a hostname.
+        # Amass format: 'booztlet.com (FQDN) --> ns_record --> ned.ns.cloudflare.com (FQDN)'
+        matches = _EXTRACT_HOST_RE.findall(s)
+        valid_hosts = []
+        for m in matches:
+            h = m.lower().strip(".")
+            # Filter out things that are just "FQDN" or IP addresses (naively)
+            if h == "fqdn": continue
+            if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", h): continue
+            
+            if _HOST_RE.match(h):
+                valid_hosts.append(h)
+        return valid_hosts
 
     seen = set()
     if target.exists():
         for ln in target.read_text(encoding="utf-8", errors="ignore").splitlines():
-            h = normalize(ln)
-            if h:
+            for h in normalize(ln):
                 seen.add(h)
 
     for ln in incoming.read_text(encoding="utf-8", errors="ignore").splitlines():
-        h = normalize(ln)
-        if h and h not in seen:
-            seen.add(h)
+        for h in normalize(ln):
+            if h not in seen:
+                seen.add(h)
 
     tmp = target.with_suffix(".tmp")
     tmp.write_text("\n".join(sorted(seen)) + "\n", encoding="utf-8")
