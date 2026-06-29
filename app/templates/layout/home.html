@@ -21,26 +21,36 @@
     {% for group_name, group_scopes in groups.items() %}
       <!-- Program Card -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col h-full program-card" data-program="{{ group_name }}">
-        <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-          <div class="flex items-center gap-2 overflow-hidden">
-            <!-- Drag Handle -->
-            <div class="cursor-grab hover:text-indigo-500 text-slate-300 program-drag-handle px-1" title="Drag to reorder">
-              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M4 4h2v2H4V4zm4 0h2v2H8V4zm4 0h2v2h-2V4zM4 8h2v2H4V8zm4 0h2v2H8V8zm4 0h2v2h-2V8zM4 12h2v2H4v-2zm4 0h2v2H8v-2zm4 0h2v2h-2v-2z"/></svg>
+        <div class="mb-4 border-b border-slate-100 pb-3">
+          <div class="flex items-start justify-between">
+            <div class="flex items-start gap-2 overflow-hidden pt-0.5">
+              <!-- Drag Handle -->
+              <div class="cursor-grab hover:text-indigo-500 text-slate-300 program-drag-handle px-1 mt-0.5" title="Drag to reorder">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M4 4h2v2H4V4zm4 0h2v2H8V4zm4 0h2v2h-2V4zM4 8h2v2H4V8zm4 0h2v2H8V8zm4 0h2v2h-2V8zM4 12h2v2H4v-2zm4 0h2v2H8v-2zm4 0h2v2h-2v-2z"/></svg>
+              </div>
+              <svg class="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+              <h2 class="text-lg font-semibold text-slate-800 break-words leading-tight" title="{{ group_name }}">{{ group_name }}</h2>
             </div>
-            <svg class="w-5 h-5 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-            <h2 class="text-lg font-semibold text-slate-800 truncate" title="{{ group_name }}">{{ group_name }}</h2>
+            
+            <div class="flex items-center gap-2 shrink-0 ml-3">
+              <span class="bg-indigo-50 border border-indigo-100 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0" title="Total Targets in Program">{{ group_scopes|length }}</span>
+              {% if group_name != 'Default' %}
+                <button class="text-slate-400 hover:text-rose-500 transition-colors p-1 hover:bg-rose-50 rounded-md" title="Delete Program" onclick="deleteProgram('{{ group_name }}')">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+              {% endif %}
+            </div>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="hidden sm:flex items-center text-[11px] text-slate-400 font-medium tracking-wide mr-2 gap-3">
-              <span title="Total Subdomains"><span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['subs']) if group_name in program_stats else 0 }}</span> subs</span>
-              <span title="Total URLs"><span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['urls']) if group_name in program_stats else 0 }}</span> urls</span>
-            </div>
-            <span class="bg-indigo-50 text-indigo-700 py-0.5 px-2.5 rounded-full text-xs font-bold tracking-wide group-count shrink-0">{{ group_scopes|length }}</span>
-            {% if group_name != 'Default' %}
-              <button class="text-slate-400 hover:text-rose-500 transition" title="Delete Program" onclick="deleteProgram('{{ group_name }}')">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-              </button>
-            {% endif %}
+          
+          <div class="flex items-center text-xs text-slate-400 font-medium tracking-wide mt-2 ml-[36px] gap-4">
+            <span class="flex items-center gap-1" title="Total Subdomains">
+              <svg class="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+              <span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['subs']) if group_name in program_stats else 0 }}</span> subs
+            </span>
+            <span class="flex items-center gap-1" title="Total URLs">
+              <svg class="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+              <span class="font-semibold text-slate-600">{{ '{:,}'.format(program_stats[group_name]['urls']) if group_name in program_stats else 0 }}</span> urls
+            </span>
           </div>
         </div>
         
