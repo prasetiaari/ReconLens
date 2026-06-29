@@ -86,6 +86,9 @@ def home(request: Request):
             "urls": p_urls
         }
 
+    from app.services.program_meta import load_program_meta
+    program_meta = load_program_meta(settings.OUTPUTS_DIR)
+
     return templates.TemplateResponse("layout/home.html", {
         "request": request,
         "scopes": scopes,
@@ -93,4 +96,5 @@ def home(request: Request):
         "favorites": favorites,
         "scope_stats": scope_stats,
         "program_stats": program_stats,
+        "program_meta": program_meta,
     })

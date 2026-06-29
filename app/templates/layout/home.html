@@ -30,6 +30,12 @@
               </div>
               <svg class="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
               <h2 class="text-lg font-semibold text-slate-800 break-words leading-tight" title="{{ group_name }}">{{ group_name }}</h2>
+              
+              <!-- Edit Button -->
+              <button onclick="openMetaModal('{{ group_name }}', '{{ program_meta.get(group_name, {}).get('platform', '') }}', '{{ program_meta.get(group_name, {}).get('url', '') }}', '{{ program_meta.get(group_name, {}).get('notes', '') | escape }}')" 
+                      class="text-slate-300 hover:text-indigo-500 transition-colors mt-1 shrink-0" title="Edit Program Details">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+              </button>
             </div>
             
             <div class="flex items-center gap-2 shrink-0 ml-3">
@@ -41,6 +47,37 @@
               {% endif %}
             </div>
           </div>
+          
+          {% set meta = program_meta.get(group_name, {}) %}
+          {% if meta.platform or meta.url or meta.notes %}
+          <div class="flex flex-wrap items-center gap-2 mt-2 ml-[36px]">
+            {% if meta.platform %}
+              {% set pcolors = {
+                'HackerOne': 'bg-slate-800 text-white',
+                'Bugcrowd': 'bg-orange-500 text-white',
+                'Intigriti': 'bg-purple-600 text-white',
+                'YesWeHack': 'bg-blue-600 text-white',
+                'Synack': 'bg-red-600 text-white',
+                'Private': 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+                'VDP': 'bg-slate-100 text-slate-600 border border-slate-200'
+              } %}
+              <span class="text-[10px] font-semibold px-2 py-0.5 rounded {{ pcolors.get(meta.platform, 'bg-slate-100 text-slate-700 border border-slate-200') }}">{{ meta.platform }}</span>
+            {% endif %}
+            
+            {% if meta.url %}
+              <a href="{{ meta.url }}" target="_blank" class="text-slate-400 hover:text-indigo-600 transition-colors" title="Open Program Page">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+              </a>
+            {% endif %}
+            
+            {% if meta.notes %}
+              <div class="group/note relative flex items-center">
+                <svg class="w-3.5 h-3.5 text-amber-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <div class="hidden group-hover/note:block absolute left-0 top-5 w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-50 whitespace-pre-wrap">{{ meta.notes }}</div>
+              </div>
+            {% endif %}
+          </div>
+          {% endif %}
           
           <div class="flex items-center text-xs text-slate-400 font-medium tracking-wide mt-2 ml-[36px] gap-4">
             <span class="flex items-center gap-1" title="Total Subdomains">
@@ -370,3 +407,62 @@
   </div>
 </div>
 {% endblock %}
+
+<!-- Modal: Edit Program Meta -->
+<div id="editMetaModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg font-medium text-slate-800">Edit Program Metadata</h3>
+      <button onclick="document.getElementById('editMetaModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+    </div>
+    <form id="editMetaForm" method="POST" hx-post="/api/programs/none/meta" hx-swap="none" hx-on::after-request="if(event.detail.successful) window.location.reload();">
+      <input type="hidden" id="metaProgramName" name="program_name" value="">
+      
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Platform</label>
+        <select name="platform" id="metaPlatform" class="w-full border-slate-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+          <option value="">-- Select Platform --</option>
+          <option value="HackerOne">HackerOne</option>
+          <option value="Bugcrowd">Bugcrowd</option>
+          <option value="Intigriti">Intigriti</option>
+          <option value="YesWeHack">YesWeHack</option>
+          <option value="Synack">Synack</option>
+          <option value="Private">Private / Direct</option>
+          <option value="VDP">VDP</option>
+        </select>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Program URL</label>
+        <input type="url" name="url" id="metaUrl" placeholder="https://hackerone.com/..." class="w-full border-slate-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Notes / Credentials</label>
+        <textarea name="notes" id="metaNotes" rows="3" placeholder="Test credentials, DO NOT test staging, etc." class="w-full border-slate-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"></textarea>
+      </div>
+
+      <div class="flex justify-end gap-3">
+        <button type="button" onclick="document.getElementById('editMetaModal').classList.add('hidden')" class="btn border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openMetaModal(progName, platform, url, notes) {
+  document.getElementById('metaProgramName').value = progName;
+  document.getElementById('metaPlatform').value = platform || '';
+  document.getElementById('metaUrl').value = url || '';
+  document.getElementById('metaNotes').value = notes || '';
+  
+  // Update form action dynamically
+  document.getElementById('editMetaForm').setAttribute('hx-post', `/api/programs/${encodeURIComponent(progName)}/meta`);
+  htmx.process(document.getElementById('editMetaForm'));
+  
+  document.getElementById('editMetaModal').classList.remove('hidden');
+}
+</script>
