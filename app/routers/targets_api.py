@@ -150,17 +150,13 @@ def toggle_favorite_api(req: ToggleFavoriteRequest, request: Request):
         return Response(str(e), status_code=500)
 
 
-class SaveScopeRequest(BaseModel):
-    in_scope: str
-    out_of_scope: str
-
 @router.post("/{scope}/scope_rules")
-def save_scope_rules_api(scope: str, req: SaveScopeRequest, request: Request):
+def save_scope_rules_api(scope: str, request: Request, in_scope: str = Form(""), out_of_scope: str = Form("")):
     from app.services.scope_evaluator import save_scope_rules
     settings = get_settings(request)
     
-    in_scope_list = [x.strip() for x in req.in_scope.split('\n') if x.strip()]
-    out_of_scope_list = [x.strip() for x in req.out_of_scope.split('\n') if x.strip()]
+    in_scope_list = [x.strip() for x in in_scope.split('\n') if x.strip()]
+    out_of_scope_list = [x.strip() for x in out_of_scope.split('\n') if x.strip()]
     
     try:
         save_scope_rules(settings.OUTPUTS_DIR / scope, in_scope_list, out_of_scope_list)
