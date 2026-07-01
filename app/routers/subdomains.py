@@ -495,7 +495,29 @@ async def dirsearch_view(scope: str, host: str, request: Request):
     total_pages = max(1, (total + page_size - 1) // page_size)
     if page > total_pages: page = total_pages
     start, end = (page - 1) * page_size, (page - 1) * page_size + page_size
-    rows = rows_all[start:end]
+    rows_str = rows_all[start:end]
+
+    from app.services.scope_evaluator import load_scope_rules, get_scope_stats, is_in_scope
+    scope_rules = load_scope_rules(settings.OUTPUTS_DIR / scope)
+    
+    rows = []
+    for s in rows_str:
+        rows.append({
+            "url": s,
+            "open_url": s,
+            "status": "-",
+            "method": "-",
+            "supported_methods": [],
+            "code": None,
+            "size": None,
+            "title": "-",
+            "last_probe": "-",
+            "tag": None,
+            "note": None,
+            "is_oos": not is_in_scope(s, scope_rules)
+        })
+
+    scope_stats = get_scope_stats(rows_all, scope_rules)
 
     # Reuse module_generic.html
     return templates.TemplateResponse("module_generic.html", {
@@ -503,6 +525,8 @@ async def dirsearch_view(scope: str, host: str, request: Request):
         "scope": scope,
         "module": f"dirsearch:{host}",
         "rows": rows,
+        "scope_rules": scope_rules,
+        "scope_stats": scope_stats,
         "q": q,
         "page": page,
         "page_size": page_size,
