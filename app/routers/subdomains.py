@@ -38,11 +38,18 @@ def _decorate_enrich_for_hosts(enrich: dict, hosts: list[str]) -> None:
     for host in hosts:
         rec = enrich.get(host)
         if not rec:
-            continue
+            rec = {}
+            enrich[host] = rec
         rec["last_probe_fmt"] = _fmt_last_probe(rec.get("last_probe"))
         kb_val, kb_str = _fmt_kb(rec.get("size"))
         rec["size_kb"]  = kb_val
         rec["size_fmt"] = kb_str
+        
+        # Scope rule tagging
+        from app.services.scope_evaluator import is_in_scope, load_scope_rules
+        # We assume scope_rules is passed via a closure or we can load it per request, 
+        # actually since _decorate_enrich_for_hosts doesn't have it, let's just do it directly.
+        pass
 
 
 def _host_in_scope(host: str, scope: str) -> bool:
@@ -332,6 +339,17 @@ async def subdomains_page(scope: str, request: Request):
     stats_pack = gather_stats(scope)
     stats = stats_pack["stats"]
     stats_map = {row["module"]: row for row in stats}
+    # NEW: inject scope rules
+    from app.services.scope_evaluator import load_scope_rules, get_scope_stats, is_in_scope
+    scope_rules = load_scope_rules(outputs_dir / scope)
+    scope_stats = get_scope_stats(hosts, scope_rules) if hosts else {"in_scope": 0, "oos": 0}
+    
+    # Set is_oos flag for rendering
+    for host in rows:
+        if not is_in_scope(host, scope_rules):
+            if host not in enrich: enrich[host] = {}
+            enrich[host]["is_oos"] = True
+
     ctx = {
         "request": request,
         "scope": scope,
@@ -352,6 +370,8 @@ async def subdomains_page(scope: str, request: Request):
         "module_name": "subdomains",
         "dirsearch_last": dir_last,
         "dirsearch_counts": dir_counts,
+        "scope_rules": scope_rules,
+        "scope_stats": scope_stats,
     }
     return templates.TemplateResponse("subdomains.html", ctx)
 

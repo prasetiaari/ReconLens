@@ -84,10 +84,14 @@
       <tbody id="rows">
   {% for host in rows %}
     {% set rec = enrich.get(host) %}
+    {% set is_oos = rec.get('is_oos') %}
     {% set final_url = (rec.get('scheme') ~ '://' ~ host) if rec and rec.get('scheme') else ('https://' ~ host) %}
-    <tr class="border-t">
+    <tr class="border-t {% if is_oos %}opacity-50 bg-rose-50/20{% endif %}">
       <!-- Host URL -->
       <td class="px-4 py-2 font-mono text-[13px] break-all">
+        {% if is_oos %}
+          <span class="inline-block bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">OOS</span>
+        {% endif %}
         <a href="{{ final_url }}" target="_blank" class="text-blue-600 hover:underline hover:text-blue-800">{{ final_url }}</a>
       </td>
 

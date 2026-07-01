@@ -1,7 +1,10 @@
 <tbody id="rows">
   {% for r in rows %}
-    <tr class="border-t">
+    <tr class="border-t {% if r.is_oos %}opacity-50 bg-rose-50/20{% endif %}">
       <td class="px-4 py-2 font-mono text-[13px] break-all">
+        {% if r.is_oos %}
+          <span class="inline-block bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">OOS</span>
+        {% endif %}
         <a href="{{ r.open_url or r.url }}" target="_blank" class="text-blue-600 hover:underline hover:text-blue-800">
           {{ r.url }}
         </a>

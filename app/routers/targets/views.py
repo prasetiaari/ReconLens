@@ -52,6 +52,10 @@ async def target_detail(request: Request, scope: str):
     total_lines = sum((s.get("lines") or 0) for s in stats)
     stats_map = {row["module"]: row for row in stats}
 
+    settings = get_settings(request)
+    from app.services.scope_evaluator import load_scope_rules
+    scope_rules = load_scope_rules(settings.OUTPUTS_DIR / scope)
+
     ctx = {
         "request": request,
         "scope": scope,
@@ -59,7 +63,9 @@ async def target_detail(request: Request, scope: str):
         "urls_count": urls_count,
         "stats_map": stats_map,
         "dash": dash,
+        "total_lines": total_lines,
         "tool_counts": tool_counts,
+        "scope_rules": scope_rules,
         "has_modules": total_lines > 0,
         "has_timeago": True,
     }
@@ -268,6 +274,14 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
 
     host_options = discovery_host_options
 
+    from app.services.scope_evaluator import load_scope_rules, get_scope_stats, is_in_scope
+    settings = get_settings(request)
+    scope_rules = load_scope_rules(settings.OUTPUTS_DIR / scope)
+    scope_stats = get_scope_stats([r["url"] for r in rows], scope_rules) if rows else {"in_scope": 0, "oos": 0}
+    
+    for r in rows:
+        r["is_oos"] = not is_in_scope(r["url"], scope_rules)
+
     ctx = {
         "request": request,
         "scope": scope,
@@ -277,6 +291,8 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "page": page,
         "page_size": page_size,
         "total": total,
+        "scope_rules": scope_rules,
+        "scope_stats": scope_stats,
         "total_pages": total_pages,
         "stats": stats,
         "stats_map": stats_map,

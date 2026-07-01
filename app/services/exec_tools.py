@@ -152,6 +152,7 @@ def build_tool_cmd(
     custom_cmd: str | None = None,
     probe_mode: str = "HEAD",
     only_alive: bool = False,
+    input_override: Optional[Path] = None,
 ) -> list[str]:
     """
     Build the CLI command for external tools and internal ReconLens modules.
@@ -160,6 +161,12 @@ def build_tool_cmd(
     cfg = _to_cfg(settings)
     py = python_exe()
     out_dir = outputs_root / scope
+    
+    # Helper for resolving input files
+    def get_input_file(default_name: str) -> str:
+        if input_override and input_override.exists():
+            return str(input_override)
+        return str(out_dir / default_name)
 
     # --- Custom Bash ---
     if tool == "custom_bash" and custom_cmd:
@@ -237,7 +244,7 @@ def build_tool_cmd(
         main_py = Path(__file__).parent.parent.parent / "__main__.py"
         return [py, str(main_py),
                 "--scope", scope,
-                "--input", str(out_dir / "urls.txt"),
+                "--input", get_input_file("urls.txt"),
                 "--out", str(out_dir)]
 
     # --- probing ---
@@ -247,7 +254,7 @@ def build_tool_cmd(
         return [
             py, str(script_py),
             "--scope", scope,
-            "--input", str(out_dir / "subdomains.txt"),
+            "--input", get_input_file("subdomains.txt"),
             "--outputs", str(outputs_root),
             "--concurrency", "20",
             "--timeout", "8",
@@ -273,7 +280,7 @@ def build_tool_cmd(
             return [
                 py, str(probe_sub_py),
                 "--scope", scope,
-                "--input", str(out_dir / "subdomains.txt"),
+                "--input", get_input_file("subdomains.txt"),
                 "--outputs", str(outputs_root),
                 "--concurrency", "20",
                 "--timeout", "8",
@@ -286,7 +293,7 @@ def build_tool_cmd(
             py, str(probe_urls_py),
             "--scope", scope,
             "--outputs", str(outputs_root),
-            "--input", str(input_file),
+            "--input", str(input_override) if (input_override and input_override.exists()) else str(input_file),
             "--source", mod,
             "--mode", probe_mode,
             "--concurrency", "8",

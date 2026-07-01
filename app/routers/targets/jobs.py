@@ -276,6 +276,48 @@ async def _run_job(
             host_dir.mkdir(parents=True, exist_ok=True)
             dirsearch_outfile = host_dir / f"{job_id}.txt"
 
+        # --- Scope filtering for safe execution ---
+        from app.services.scope_evaluator import load_scope_rules, is_in_scope
+        scope_rules = load_scope_rules(out_dir)
+        input_override = None
+
+        if tool in ["build", "probe_subdomains", "probe_module", "dirsearch"]:
+            primary_input = None
+            if tool == "build":
+                primary_input = out_dir / "urls.txt"
+            elif tool == "probe_subdomains" or (tool == "probe_module" and job.get("module") == "subdomains"):
+                primary_input = out_dir / "subdomains.txt"
+            elif tool == "probe_module":
+                mod = (job.get("module") or "").lower()
+                candidates = out_dir / f"{mod}_candidates.txt"
+                fallback   = out_dir / f"{mod}.txt"
+                primary_input = candidates if candidates.exists() else fallback
+            elif tool == "dirsearch":
+                # For dirsearch, if it runs on a single host, we can still filter it just in case
+                if host and not is_in_scope(host, scope_rules):
+                    await q.put(f"[WARN] Host {host} is Out of Scope! Execution cancelled.\n")
+                    job["exit_code"] = 1
+                    return
+            
+            # If we found a primary input, filter it to a safe temp file
+            if primary_input and primary_input.exists():
+                safe_input = jobs_dir / f"{job_id}_safe_in.txt"
+                filtered_out = 0
+                total_in = 0
+                with primary_input.open("r", encoding="utf-8", errors="ignore") as f_in, safe_input.open("w", encoding="utf-8") as f_out:
+                    for line in f_in:
+                        u = line.strip()
+                        if not u: continue
+                        total_in += 1
+                        if is_in_scope(u, scope_rules):
+                            f_out.write(u + "\n")
+                        else:
+                            filtered_out += 1
+                
+                if filtered_out > 0:
+                    await q.put(f"[INFO] Scope Filter: Removed {filtered_out} out-of-scope targets from {total_in} total.\n")
+                input_override = safe_input
+
         # Build command (pastikan build_tool_cmd("build", ...) memang return ['python', '-m', 'ReconLens', ...])
         cmd = build_tool_cmd(
             tool,
@@ -289,6 +331,7 @@ async def _run_job(
             custom_cmd=job.get("custom_cmd"),
             probe_mode=job.get("probe_mode", "HEAD"),
             only_alive=job.get("only_alive", False),
+            input_override=input_override,
         )
 
         # Env & CWD sama seperti “old”
