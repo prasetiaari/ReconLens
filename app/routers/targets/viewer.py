@@ -6,6 +6,8 @@ import httpx
 import json
 
 from app.deps import get_templates
+from app.services.programs import get_program_for_scope
+from app.core.constants import OUTPUTS_DIR
 
 router = APIRouter(tags=["Targets (viewer)"])
 
@@ -18,10 +20,12 @@ class ProxyRequest(BaseModel):
 @router.get("/{scope}/viewer", response_class=HTMLResponse)
 async def viewer_page(request: Request, scope: str, url: str = ""):
     templates = get_templates(request)
+    program_name = get_program_for_scope(OUTPUTS_DIR, scope)
     ctx = {
         "request": request,
         "scope": scope,
         "initial_url": url,
+        "program_name": program_name,
     }
     return templates.TemplateResponse("targets/viewer_combo.html", ctx)
 

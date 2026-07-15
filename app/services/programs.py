@@ -62,3 +62,10 @@ def reorder_programs(outputs_dir: Path, new_order: list[str]):
             reordered_data[prog_name] = data[prog_name]
             
     save_programs(outputs_dir, reordered_data)
+
+def get_program_for_scope(outputs_dir: Path, scope: str) -> str | None:
+    data = load_programs(outputs_dir)
+    for prog_name, scopes in data.items():
+        if scope in scopes:
+            return prog_name
+    return None

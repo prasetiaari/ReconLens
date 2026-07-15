@@ -55,10 +55,14 @@ async def target_detail(request: Request, scope: str):
     settings = get_settings(request)
     from app.services.scope_evaluator import load_scope_rules
     scope_rules = load_scope_rules(settings.OUTPUTS_DIR / scope)
+    
+    from app.services.programs import get_program_for_scope
+    program_name = get_program_for_scope(settings.OUTPUTS_DIR, scope)
 
     ctx = {
         "request": request,
         "scope": scope,
+        "program_name": program_name,
         "stats": stats,
         "urls_count": urls_count,
         "stats_map": stats_map,
@@ -279,12 +283,16 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     scope_rules = load_scope_rules(settings.OUTPUTS_DIR / scope)
     scope_stats = get_scope_stats([r["url"] for r in rows], scope_rules) if rows else {"in_scope": 0, "oos": 0}
     
+    from app.services.programs import get_program_for_scope
+    program_name = get_program_for_scope(settings.OUTPUTS_DIR, scope)
+
     for r in rows:
         r["is_oos"] = not is_in_scope(r["url"], scope_rules)
 
     ctx = {
         "request": request,
         "scope": scope,
+        "program_name": program_name,
         "module": mod,
         "rows": rows,
         "q": q,

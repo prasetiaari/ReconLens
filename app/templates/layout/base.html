@@ -44,6 +44,9 @@
   </script>
 </head>
 <body class="bg-slate-50 text-slate-800">
+  <!-- Global HTMX Loading Progress Bar -->
+  <div id="htmx-progress-bar" class="fixed top-0 left-0 h-[3px] bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 z-[99999] shadow-[0_1px_10px_rgba(99,102,241,0.5)] transition-all duration-300 ease-out" style="width: 0%; display: none;"></div>
+
   <div id="appWrapper">
     {% block toolbar %}{% endblock %}
     {% block modals %}{% endblock %}
@@ -54,10 +57,14 @@
         <a href="/"><img src="/static/img/reconlens-logo.png" alt="ReconLens" class="h-10"></a>
 
         <!-- Breadcrumbs -->
-        <nav class="text-base text-slate-600 font-medium">
+        <nav class="text-base text-slate-600 font-medium flex items-center">
             {% if scope %}
               <a href="/" class="hover:underline">ReconLens</a>
               <span class="mx-1">/</span>
+              {% if program_name %}
+                <a href="/#prog-{{ program_name }}" class="hover:underline">{{ program_name }}</a>
+                <span class="mx-1">/</span>
+              {% endif %}
               <a href="/targets/{{ scope }}" class="hover:underline">{{ scope }}</a>
               {% if module_name %}
                 <span class="mx-1">/</span>
@@ -736,6 +743,62 @@
 })();
 </script>
 {% endif %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const progressBar = document.getElementById('htmx-progress-bar');
+  let progressTimeout = null;
+
+  document.body.addEventListener('htmx:beforeRequest', (event) => {
+    if (progressTimeout) clearTimeout(progressTimeout);
+    
+    progressBar.style.width = '0%';
+    progressBar.style.opacity = '1';
+    progressBar.style.display = 'block';
+    
+    if (event.detail.elt) {
+      event.detail.elt.style.pointerEvents = 'none';
+      event.detail.elt.style.opacity = '0.7';
+    }
+
+    setTimeout(() => {
+      progressBar.style.width = '90%';
+    }, 10);
+  });
+
+  document.body.addEventListener('htmx:afterRequest', (event) => {
+    if (event.detail.elt) {
+      event.detail.elt.style.pointerEvents = '';
+      event.detail.elt.style.opacity = '';
+    }
+
+    progressBar.style.width = '100%';
+    
+    progressTimeout = setTimeout(() => {
+      progressBar.style.opacity = '0';
+      setTimeout(() => {
+        progressBar.style.display = 'none';
+        progressBar.style.width = '0%';
+      }, 300);
+    }, 200);
+  });
+  
+  document.body.addEventListener('htmx:onLoadError', (event) => {
+    progressBar.style.width = '100%';
+    progressBar.classList.remove('bg-gradient-to-r', 'from-indigo-500', 'via-purple-500', 'to-pink-500');
+    progressBar.style.backgroundColor = '#ef4444';
+    
+    progressTimeout = setTimeout(() => {
+      progressBar.style.opacity = '0';
+      setTimeout(() => {
+        progressBar.style.display = 'none';
+        progressBar.style.width = '0%';
+        progressBar.style.backgroundColor = '';
+        progressBar.classList.add('bg-gradient-to-r', 'from-indigo-500', 'via-purple-500', 'to-pink-500');
+      }, 300);
+    }, 500);
+  });
+});
+</script>
 </body>
 
 </html>

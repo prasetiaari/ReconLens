@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+from app.core.meta import load_meta, save_meta
 
 # ---------------------------------------------------------------------------
 # JSON / File Utilities
@@ -309,7 +310,7 @@ def list_category_files(scope: str, outputs_root: Path) -> List[str]:
 
 OUTPUTS_DIR = Path("outputs")
 
-def get_tool_counts(scope: str) -> dict[str, int]:
+def get_tool_counts(scope: str, meta: Optional[dict] = None) -> dict[str, int]:
     """Calculate the number of unique URLs/hosts found by each tool in outputs/<scope>/raw/."""
     out_dir = OUTPUTS_DIR / scope
     raw_dir = out_dir / "raw"
@@ -319,6 +320,18 @@ def get_tool_counts(scope: str) -> dict[str, int]:
     }
     if not raw_dir.exists():
         return res
+
+    current_files = {}
+    try:
+        for p in raw_dir.glob("*.urls"):
+            current_files[p.name] = p.stat().st_mtime
+    except Exception:
+        pass
+
+    if meta is not None:
+        cached_tools = meta.get("_cached_tool_counts")
+        if cached_tools and cached_tools.get("files") == current_files:
+            return cached_tools["counts"]
 
     tool_urls = {
         "gau": set(), "waymore": set(), "urlfinder": set(),
@@ -341,7 +354,30 @@ def get_tool_counts(scope: str) -> dict[str, int]:
 
     for name in res:
         res[name] = len(tool_urls[name])
+
+    if meta is not None:
+        meta["_cached_tool_counts"] = {
+            "files": current_files,
+            "counts": res,
+        }
+        meta["__updated"] = True
+
     return res
+
+def get_cached_line_count(p: Path, meta: dict) -> int:
+    """Return line count using cached values if the file modification time matches."""
+    if not p.exists():
+        return 0
+    mtime = p.stat().st_mtime
+    cache = meta.setdefault("_cached_file_lines", {})
+    cached = cache.get(p.name)
+    if cached and cached.get("mtime") == mtime:
+        return cached["lines"]
+    
+    lines = count_lines(p)
+    cache[p.name] = {"lines": lines, "mtime": mtime}
+    meta["__updated"] = True
+    return lines
 
 def gather_stats(scope: str) -> dict:
     out_dir = OUTPUTS_DIR / scope
@@ -358,16 +394,19 @@ def gather_stats(scope: str) -> dict:
             "tool_counts": {"gau": 0, "waymore": 0, "urlfinder": 0},
         }
 
+    meta = load_meta(OUTPUTS_DIR, scope)
+    meta["__updated"] = False
+
     # 1) hitung urls.txt
     urls_path = out_dir / "urls.txt"
-    urls_count = count_lines(urls_path)
+    urls_count = get_cached_line_count(urls_path, meta)
 
     # 2) kumpulkan semua file .txt di outputs/<scope> (ini modul2)
     stats_list = []
     subdomains_lines = 0
     for p in sorted(out_dir.glob("*.txt")):
         mod = p.stem.lower()
-        lines = count_lines(p)
+        lines = get_cached_line_count(p, meta)
         row = {
             "module": mod,
             "file": p.name,
@@ -379,13 +418,8 @@ def gather_stats(scope: str) -> dict:
             row["hosts"] = lines
         stats_list.append(row)
 
-    # 3) baca meta.json kalau ada
-    meta = safe_json_load(out_dir / "meta.json")
+    # 3) ambil timestamp paling baru dari semua last_scans
     last_scans = meta.get("last_scans", {})
-    status_counts = meta.get("status_counts", {})
-    ctypes = meta.get("ctypes", {})
-
-    # 4) ambil timestamp paling baru dari semua last_scans
     last_probe_iso = None
     if last_scans:
         try:
@@ -394,31 +428,34 @@ def gather_stats(scope: str) -> dict:
             last_probe_iso = None
 
     # 4) bangun dash yang dipakai template
-
-    agg = load_http_aggregates(OUTPUTS_DIR, scope)
+    agg = load_http_aggregates(OUTPUTS_DIR, scope, meta)
     live_urls = agg["live_urls"]
     dash = {
-        # diisi sendiri dari file, walaupun meta.json kosong
         "totals": {
             "urls": urls_count,
             "hosts": subdomains_lines,
             "live_urls": live_urls,
         },
-        "status_counts": status_counts or {},
-        "ctypes": ctypes or {},
+        "status_counts": agg["status_counts"],
+        "ctypes": agg["content_types"],
         "last_scans": last_scans,
         "last_probe_iso": last_probe_iso,
     }
 
+    tool_counts = get_tool_counts(scope, meta)
 
-    dash["status_counts"] = agg["status_counts"]
-    dash["ctypes"] = agg["content_types"]
+    if meta.get("__updated"):
+        updates = {}
+        for key in ("_cached_file_lines", "_cached_http_aggregates", "_cached_tool_counts"):
+            if key in meta:
+                updates[key] = meta[key]
+        save_meta(OUTPUTS_DIR, scope, **updates)
 
     return {
         "stats": stats_list,
         "urls_count": urls_count,
         "dash": dash,
-        "tool_counts": get_tool_counts(scope),
+        "tool_counts": tool_counts,
     }
 
 def count_lines(p: Path) -> int:
@@ -468,7 +505,7 @@ def count_live_urls_from_enrich(outputs_root: Path, scope: str) -> int:
                 cnt += 1
     return cnt
 
-def load_http_aggregates(outputs_root: Path, scope: str) -> dict:
+def load_http_aggregates(outputs_root: Path, scope: str, meta: Optional[dict] = None) -> dict:
     """
     Read HTTP/probe metadata from outputs/<scope>/__cache/url_enrich.json
     and produce small aggregates for the dashboard.
@@ -481,13 +518,22 @@ def load_http_aggregates(outputs_root: Path, scope: str) -> dict:
         }
     """
     enrich_path = outputs_root / scope / "__cache" / "url_enrich.json"
-    print(enrich_path)
     if not enrich_path.exists():
         return {
             "live_urls": 0,
             "status_counts": {},
             "content_types": {},
         }
+
+    mtime = enrich_path.stat().st_mtime
+    if meta is not None:
+        cached_agg = meta.get("_cached_http_aggregates")
+        if cached_agg and cached_agg.get("mtime") == mtime:
+            return {
+                "live_urls": cached_agg["live_urls"],
+                "status_counts": cached_agg["status_counts"],
+                "content_types": cached_agg["content_types"],
+            }
 
     try:
         enrich_data = json.loads(enrich_path.read_text(encoding="utf-8"))
@@ -531,8 +577,19 @@ def load_http_aggregates(outputs_root: Path, scope: str) -> dict:
         sorted(ctype_tmp.items(), key=lambda x: x[1], reverse=True)[:3]
     )
 
-    return {
+    agg = {
         "live_urls": live_urls,
         "status_counts": status_counts,
         "content_types": content_types,
     }
+
+    if meta is not None:
+        meta["_cached_http_aggregates"] = {
+            "mtime": mtime,
+            "live_urls": live_urls,
+            "status_counts": status_counts,
+            "content_types": content_types,
+        }
+        meta["__updated"] = True
+
+    return agg

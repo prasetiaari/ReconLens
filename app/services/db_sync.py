@@ -114,10 +114,10 @@ def sync_module(outputs_dir: str | Path, scope: str, module_name: str, force: bo
         # executemany needs tuples
         data = []
         for u in urls:
-            try:
-                p = urlparse(u)
-                h = p.netloc.lower() if p else ""
-            except Exception:
+            idx = u.find("://")
+            if idx != -1:
+                h = u[idx+3:].split("/", 1)[0].split(":", 1)[0].lower()
+            else:
                 h = ""
             data.append((u, module_name, h))
         cur.executemany("INSERT INTO module_urls (url, module, host) VALUES (?, ?, ?)", data)

@@ -433,8 +433,10 @@ async def _run_job(
         await q.put("event: status\ndata: done\n\n")
     finally:
         try:
+            await q.put(f"\n[info] synchronizing database (this might take a while for large targets)...\n")
             from app.services.db_sync import sync_target
             await asyncio.to_thread(sync_target, outputs_root, scope)
+            await q.put(f"[info] database sync complete.\n")
         except Exception as e:
             print(f"[WARN] Failed to sync SQLite DB: {e}")
             
@@ -559,9 +561,13 @@ async def collect_console(request: Request, scope: str, tool: str, module: Optio
     host = request.query_params.get("host") or ""
     cmd_b64 = request.query_params.get("cmd_b64") or ""
 
+    from app.services.programs import get_program_for_scope
+    program_name = get_program_for_scope(OUTPUTS_DIR, scope)
+
     return templates.TemplateResponse("admin/collect_console.html", {
         "request": request,
         "scope": scope,
+        "program_name": program_name,
         "tool": tool,
         "module": module,
         "last_scans": last_scans,

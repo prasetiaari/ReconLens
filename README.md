@@ -17,6 +17,9 @@ Development started during **Tangsel Bug Bounty 2025**, so many features come fr
 5. Interactive Web Terminal (xterm.js) — Run CLI tools like `vim`, `htop`, or `nano` directly from your browser.
 6. Local AI Integration — Analyze endpoints and generate automated recon rules using local LLMs (via Ollama).
 7. FastAPI-based web UI (dashboard + graphs)
+8. Advanced Scope Management — Define and flag in-scope/out-of-scope targets to ensure testing stays within boundaries.
+9. Program Metadata Tracking — Track bug bounty program details (platform, URL, custom notes) directly in the dashboard.
+10. Favoriting & Notes System — Bookmark interesting endpoints and leave notes, organized in a dedicated Tagged module.
 
 ## ReconLens Workflow
 

@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, Response
 import json
 
 from app.services.enrich_subdomains import get_probe_map_cached as load_enrich
+from app.services.programs import get_program_for_scope
 router = APIRouter()
 
 def _decorate_enrich_for_hosts(enrich: dict, hosts: list[str]) -> None:
@@ -279,6 +280,7 @@ async def subdomains_ip_clusters(scope: str, request: Request):
     ctx = {
         "request": request,
         "scope": scope,
+        "program_name": get_program_for_scope(settings.OUTPUTS_DIR, scope),
         "data_url": data_url,
         "back_url": f"/targets/{scope}/subdomains",
     }
@@ -353,6 +355,7 @@ async def subdomains_page(scope: str, request: Request):
     ctx = {
         "request": request,
         "scope": scope,
+        "program_name": get_program_for_scope(outputs_dir, scope),
         "page_url": page_url,
         "q": q,
         "page": page,
@@ -446,6 +449,7 @@ async def subdomains_rows(scope: str, request: Request):
     ctx = {
         "request": request,
         "scope": scope,
+        "program_name": get_program_for_scope(outputs_dir, scope),
         "page_url": page_url,
         "q": q,
         "page": page,
@@ -523,6 +527,7 @@ async def dirsearch_view(scope: str, host: str, request: Request):
     return templates.TemplateResponse("module_generic.html", {
         "request": request,
         "scope": scope,
+        "program_name": get_program_for_scope(settings.OUTPUTS_DIR, scope),
         "module": f"dirsearch:{host}",
         "rows": rows,
         "scope_rules": scope_rules,
