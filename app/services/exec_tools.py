@@ -247,6 +247,12 @@ def build_tool_cmd(
                 "--input", get_input_file("urls.txt"),
                 "--out", str(out_dir)]
 
+    if tool == "passive_recon":
+        script_py = Path(__file__).parent.parent.parent / "tools" / "passive_recon.py"
+        return [py, str(script_py),
+                "--scope", scope,
+                "--outputs", str(outputs_root)]
+
     # --- probing ---
     if tool == "probe_subdomains":
         headers_dict = merged_headers_from_settings(cfg)

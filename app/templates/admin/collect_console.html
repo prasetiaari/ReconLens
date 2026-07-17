@@ -56,6 +56,8 @@
     subzy run --targets outputs/{{ scope }}/subdomains.txt --hide_fails
 {%- elif tool == 'subjack_takeover' -%}
     subjack -w outputs/{{ scope }}/subdomains.txt -t 100 -timeout 30 -ssl -o outputs/{{ scope }}/takeovers.txt
+{%- elif tool == 'passive_recon' -%}
+    python -m tools.passive_recon --scope {{ scope }} --outputs outputs/
 {%- else -%}
 # unknown tool
 {%- endif %}

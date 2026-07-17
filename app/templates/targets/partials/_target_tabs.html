@@ -22,6 +22,14 @@
     Overview
   </a>
 
+  {% set urls_stat = stats_map.get('urls') %}
+  {% if urls_stat and (urls_stat.lines or 0) > 0 %}
+    <a href="/targets/{{ scope_val }}/urls"
+       class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='urls' else 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-medium' }}">
+      All URLs <!--<span class="text-indigo-400 font-normal">({{ urls_stat.lines }})</span>-->
+    </a>
+  {% endif %}
+
   <a href="/targets/{{ scope_val }}/subdomains"
      class="px-3 py-2 rounded-lg text-sm {{ 'bg-slate-900 text-white' if active_mod=='subdomains' else 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
     Subdomains
@@ -78,7 +86,7 @@
       <div class="py-1 max-h-[60vh] overflow-auto">
         {% if has_stats %}
           {# exclude primary buckets #}
-          {% set exclude = ['subdomains', 'dirsearch', 'probe_paths'] %}
+          {% set exclude = ['subdomains', 'dirsearch', 'probe_paths', 'urls'] %}
           {% for st in stats if st.lines > 0 and st.module not in exclude %}
             <a href="/targets/{{ scope_val }}/{{ st.module }}"
                class="block px-3 py-2 text-sm hover:bg-slate-50">

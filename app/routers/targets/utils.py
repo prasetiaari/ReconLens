@@ -293,7 +293,8 @@ def list_category_files(scope: str, outputs_root: Path) -> List[str]:
     known = {
         "subdomains", "auth_login", "admin_panel", "api", "upload", "download_dump",
         "debug_dev", "docs_swagger", "config_backup_source", "sensitive_functionality",
-        "monitoring", "payments", "static_assets", "file_disclosure", "other",
+        "monitoring", "payments", "static_assets", "file_disclosure", "injection_candidates",
+        "catalog_noise", "other",
     }
 
     files = [p.stem for p in sorted(out_dir.glob("*.txt")) if p.stem != "urls"]

@@ -476,6 +476,11 @@ async def _handle_merge(tool: str, scope: str, out_dir: Path, tmp_urls: Path, ca
         # === samakan wording lama:
         await q.put(f"[summary] rebuild done. outputs → {out_dir}\n")
 
+    elif tool == "passive_recon":
+        update_last_scan(scope, "subdomains", out_dir.parent)
+        update_last_scan(scope, "build", out_dir.parent)
+        await q.put(f"[summary] passive_recon complete. outputs → {out_dir}\n")
+
     elif tool in ("probe_subdomains", "probe_module"):
         key = (module_name or tool).lower()
         if key == "probe_subdomains":
@@ -720,3 +725,311 @@ async def get_active_jobs(scope: str):
                     "host": info.get("host"),
                 })
     return JSONResponse(active)
+
+
+# ======================================================================
+# Workflow: Passive Recon Pipeline
+# ======================================================================
+
+WORKFLOW_JOBS: Dict[str, Dict[str, Any]] = {}
+"""Track active workflow jobs per scope."""
+
+
+@router.get("/{scope}/workflow/passive", response_class=HTMLResponse)
+async def workflow_passive_page(request: Request, scope: str):
+    """Render the workflow console page."""
+    templates = get_templates(request)
+    from app.services.programs import get_program_for_scope
+    program_name = get_program_for_scope(OUTPUTS_DIR, scope)
+    return templates.TemplateResponse("admin/workflow_console.html", {
+        "request": request,
+        "scope": scope,
+        "program_name": program_name,
+    })
+
+
+@router.post("/{scope}/workflow/passive/start")
+async def workflow_passive_start(scope: str, request: Request):
+    """Start the passive recon pipeline."""
+    # Check if already running
+    existing = WORKFLOW_JOBS.get(scope)
+    if existing and not existing.get("done"):
+        pid = existing.get("pid")
+        if pid:
+            try:
+                os.kill(pid, 0)
+                return JSONResponse({"ok": True, "job_id": existing["job_id"], "reattached": True})
+            except OSError:
+                pass
+
+    jid = os.urandom(12).hex()
+    out_dir = OUTPUTS_DIR / scope
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jobs_dir = out_dir / "__jobs__"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = jobs_dir / f"workflow_{jid}.log"
+
+    q = HistoryQueue()
+    info = {
+        "job_id": jid,
+        "queue": q,
+        "proc": None,
+        "done": False,
+        "exit_code": None,
+        "scope": scope,
+        "tool": "passive_recon",
+        "pid": None,
+        "log_path": str(log_path),
+        "paused": False,
+        "step_states": {},
+        "progress": {"done": 0, "total": 9, "percentage": 0},
+    }
+
+    WORKFLOW_JOBS[scope] = info
+    JOBS[jid] = info
+    _save_job_to_disk(jid, info)
+
+    settings = get_settings(request)
+    asyncio.create_task(_run_workflow(scope, jid, out_dir, log_path, settings=settings))
+
+    return JSONResponse({"ok": True, "job_id": jid})
+
+
+async def _run_workflow(scope: str, job_id: str, out_dir: Path, log_path: Path, *, settings=None):
+    """Run passive_recon.py as a subprocess and stream its output."""
+    info = WORKFLOW_JOBS.get(scope) or JOBS.get(job_id)
+    if not info:
+        return
+    q = info["queue"]
+
+    outputs_root = out_dir.parent
+    repo_root = outputs_root.parent
+    project_root = repo_root.parent
+
+    try:
+        cmd = build_tool_cmd("passive_recon", scope, outputs_root, settings=settings)
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(project_root)
+        env["PATH"] = systemish_path()
+
+        await q.put(f"$ {' '.join(shlex.quote(c) for c in cmd)}\n")
+        await q.put(f"[info] cwd={project_root}\n")
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(project_root),
+            env=env,
+        )
+        info["proc"] = proc
+        info["pid"] = proc.pid
+        _save_job_to_disk(job_id, info)
+
+        assert proc.stdout is not None
+
+        async def read_lines(stream):
+            buffer = bytearray()
+            while True:
+                chunk = await stream.read(8192)
+                if not chunk:
+                    if buffer:
+                        yield bytes(buffer)
+                    break
+                buffer.extend(chunk)
+                while b'\n' in buffer:
+                    idx = buffer.index(b'\n')
+                    yield bytes(buffer[:idx])
+                    del buffer[:idx + 1]
+
+        with open(log_path, "w", encoding="utf-8", errors="ignore") as log_f:
+            async for raw in read_lines(proc.stdout):
+                line = raw.decode("utf-8", "ignore").rstrip("\r\n")
+                log_f.write(line + "\n")
+                log_f.flush()
+
+                # Parse structured events and track state
+                if line.startswith("[step_update]"):
+                    try:
+                        payload = json.loads(line[13:].strip())
+                        info["step_states"][payload["name"]] = payload["status"]
+                    except Exception:
+                        pass
+
+                if line.startswith("[progress]"):
+                    try:
+                        payload = json.loads(line[10:].strip())
+                        info["progress"] = payload
+                    except Exception:
+                        pass
+
+                await q.put(line + "\n")
+
+        rc = await proc.wait()
+        info["exit_code"] = rc
+        await q.put(f"\n[exit] code={rc}\n")
+
+    except Exception as e:
+        await q.put(f"[error] {e}\n")
+        info["exit_code"] = -1
+
+    finally:
+        try:
+            await q.put(f"\n[info] synchronizing database...\n")
+            from app.services.db_sync import sync_target
+            await asyncio.to_thread(sync_target, out_dir.parent, scope)
+            await q.put(f"[info] database sync complete.\n")
+        except Exception as e:
+            print(f"[WARN] Failed to sync SQLite DB: {e}")
+
+        info["done"] = True
+        _save_job_to_disk(job_id, info)
+        await q.put("[[DONE]]")
+
+
+@router.post("/{scope}/workflow/passive/pause")
+async def workflow_passive_pause(scope: str, job: str):
+    """Pause the running pipeline by sending SIGSTOP."""
+    info = WORKFLOW_JOBS.get(scope) or JOBS.get(job)
+    if not info:
+        return JSONResponse({"ok": False, "error": "no active workflow"})
+
+    pid = info.get("pid")
+    if pid:
+        try:
+            os.kill(pid, signal.SIGSTOP)
+            info["paused"] = True
+            return JSONResponse({"ok": True})
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    return JSONResponse({"ok": False, "error": "no pid"})
+
+
+@router.post("/{scope}/workflow/passive/resume")
+async def workflow_passive_resume(scope: str, job: str):
+    """Resume the paused pipeline by sending SIGCONT."""
+    info = WORKFLOW_JOBS.get(scope) or JOBS.get(job)
+    if not info:
+        return JSONResponse({"ok": False, "error": "no active workflow"})
+
+    pid = info.get("pid")
+    if pid:
+        try:
+            os.kill(pid, signal.SIGCONT)
+            info["paused"] = False
+            return JSONResponse({"ok": True})
+        except OSError as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    return JSONResponse({"ok": False, "error": "no pid"})
+
+
+@router.post("/{scope}/workflow/passive/cancel")
+async def workflow_passive_cancel(scope: str, job: str):
+    """Cancel the running pipeline."""
+    info = WORKFLOW_JOBS.get(scope) or JOBS.get(job)
+    if not info:
+        return JSONResponse({"ok": False, "error": "no active workflow"})
+
+    # If paused, resume first so it can receive SIGTERM
+    pid = info.get("pid")
+    if pid and info.get("paused"):
+        try:
+            os.kill(pid, signal.SIGCONT)
+        except OSError:
+            pass
+
+    proc = info.get("proc")
+    if proc and proc.returncode is None:
+        try:
+            proc.send_signal(signal.SIGINT)
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    elif pid:
+        try:
+            os.kill(pid, signal.SIGINT)
+        except Exception:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+
+    info["paused"] = False
+    return JSONResponse({"ok": True})
+
+
+@router.get("/{scope}/workflow/passive/stream")
+async def workflow_passive_stream(scope: str, job: str):
+    """Stream workflow output via Server-Sent Events with history re-attachment."""
+    info = WORKFLOW_JOBS.get(scope) or JOBS.get(job)
+    if not info:
+        info = _load_job_from_disk(job)
+    if not info:
+        raise HTTPException(404, "workflow not found")
+
+    async def eventgen():
+        q = info["queue"]
+        history = getattr(q, "history", [])
+        index = 0
+        while True:
+            if index < len(history):
+                item = history[index]
+                index += 1
+                if item == "[[DONE]]":
+                    yield "data: [[DONE]]\n\n"
+                    break
+                if item.startswith("event:"):
+                    yield item
+                else:
+                    for line in item.splitlines():
+                        yield f"data: {line}\n"
+                    yield "\n"
+            else:
+                if info.get("done") and index >= len(history):
+                    yield "data: [[DONE]]\n\n"
+                    break
+                await asyncio.sleep(0.1)
+
+    return StreamingResponse(eventgen(), media_type="text/event-stream")
+
+
+@router.get("/{scope}/workflow/passive/status")
+async def workflow_passive_status(scope: str):
+    """Get the current status of the passive recon workflow for re-attaching."""
+    info = WORKFLOW_JOBS.get(scope)
+
+    # Try to find from JOBS if not in WORKFLOW_JOBS
+    if not info:
+        for jid, j in JOBS.items():
+            if j.get("scope") == scope and j.get("tool") == "passive_recon" and not j.get("done"):
+                info = j
+                info["job_id"] = jid
+                WORKFLOW_JOBS[scope] = info
+                break
+
+    if not info or info.get("done"):
+        return JSONResponse({"active": False})
+
+    # Check if process is still alive
+    pid = info.get("pid")
+    if pid:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            info["done"] = True
+            return JSONResponse({"active": False})
+
+    return JSONResponse({
+        "active": True,
+        "job_id": info.get("job_id"),
+        "paused": info.get("paused", False),
+        "step_states": info.get("step_states", {}),
+        "progress": info.get("progress", {"done": 0, "total": 9, "percentage": 0}),
+        "elapsed_s": 0,
+    })

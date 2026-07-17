@@ -1,0 +1,410 @@
+{% extends "layout/base.html" %}
+{% block title %}⚡ Passive Recon · {{ scope }} · ReconLens{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-4">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-xs uppercase tracking-wide text-slate-500">Workflow Runner</div>
+      <h1 class="text-xl font-semibold">
+        <span class="text-indigo-600">⚡ Passive Recon</span>
+        <span class="text-slate-400">·</span>
+        <span class="font-mono">{{ scope }}</span>
+      </h1>
+    </div>
+    <div class="text-sm">
+      <a href="/targets/{{ scope }}" class="text-blue-600 hover:underline">← back to report</a>
+    </div>
+  </div>
+
+  <!-- Controls Bar -->
+  <div class="flex items-center justify-between gap-4 p-3 rounded-xl bg-white shadow border border-slate-200">
+    <div class="flex items-center gap-2">
+      <button id="startBtn" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition flex items-center gap-1.5">
+        ⚡ Start Pipeline
+      </button>
+      <button id="pauseBtn" class="px-3 py-2 rounded-lg bg-amber-100 text-amber-700 text-sm font-medium hover:bg-amber-200 transition hidden" disabled>
+        ⏸ Pause
+      </button>
+      <button id="resumeBtn" class="px-3 py-2 rounded-lg bg-emerald-100 text-emerald-700 text-sm font-medium hover:bg-emerald-200 transition hidden" disabled>
+        ▶ Resume
+      </button>
+      <button id="cancelBtn" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-600 text-sm font-medium hover:bg-red-50 hover:text-red-600 transition" disabled>
+        ✖ Cancel
+      </button>
+    </div>
+
+    <!-- Running indicator + elapsed -->
+    <div id="runIndicator" class="hidden items-center gap-3 text-sm text-slate-600">
+      <svg class="animate-spin h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+      </svg>
+      <span id="statusText">Running…</span>
+      <span class="text-slate-300">·</span>
+      <span id="elapsed" class="font-mono text-xs">0s</span>
+    </div>
+  </div>
+
+  <!-- Global Progress Bar -->
+  <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+    <div id="globalProgress" class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+  </div>
+  <div class="flex justify-between text-xs text-slate-500">
+    <span id="progressLabel">Ready to start</span>
+    <span id="progressPct">0%</span>
+  </div>
+
+  <!-- Two-panel layout -->
+  <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4" style="min-height: 60vh;">
+    <!-- Left Panel: Task Stepper -->
+    <div class="rounded-xl bg-white shadow border border-slate-200 p-4 overflow-y-auto" style="max-height: 70vh;">
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-3 font-semibold">Pipeline Steps</div>
+      <div class="space-y-1" id="stepperList">
+        <!-- Steps will be injected by JS -->
+      </div>
+    </div>
+
+    <!-- Right Panel: Live Console -->
+    <div id="termBox" class="rounded-xl border bg-[#0d1117] text-slate-200 p-4 overflow-auto" style="max-height: 70vh;">
+      <pre id="out" class="font-mono text-[13px] leading-snug whitespace-pre-wrap break-words max-w-none"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const scope = {{ scope|tojson }};
+
+  // ── DOM refs ──
+  const startBtn   = document.getElementById('startBtn');
+  const pauseBtn   = document.getElementById('pauseBtn');
+  const resumeBtn  = document.getElementById('resumeBtn');
+  const cancelBtn  = document.getElementById('cancelBtn');
+  const outEl      = document.getElementById('out');
+  const boxEl      = document.getElementById('termBox');
+  const indEl      = document.getElementById('runIndicator');
+  const elapsedEl  = document.getElementById('elapsed');
+  const statusText = document.getElementById('statusText');
+  const globalProg = document.getElementById('globalProgress');
+  const progLabel  = document.getElementById('progressLabel');
+  const progPct    = document.getElementById('progressPct');
+  const stepperEl  = document.getElementById('stepperList');
+
+  let es = null;
+  let currentJob = null;
+  let timer = null;
+  let startedAt = 0;
+  let isPaused = false;
+
+  // ── Step definitions (must match backend STEPS) ──
+  const STEPS = [
+    {name: 'subfinder',        label: 'Subdomain: Subfinder',       phase: 'subdomains'},
+    {name: 'amass',            label: 'Subdomain: Amass (passive)', phase: 'subdomains'},
+    {name: 'findomain',        label: 'Subdomain: Findomain',       phase: 'subdomains'},
+    {name: 'merge_subdomains', label: 'Deduplicate Subdomains',     phase: 'subdomains'},
+    {name: 'gau',              label: 'URL: GAU',                   phase: 'urls'},
+    {name: 'waymore',          label: 'URL: Waymore',               phase: 'urls'},
+    {name: 'urlfinder',        label: 'URL: URLFinder',             phase: 'urls'},
+    {name: 'merge_urls',       label: 'Deduplicate URLs',           phase: 'urls'},
+    {name: 'build',            label: 'Build Modules (classify)',   phase: 'build'},
+  ];
+
+  // ── Stepper rendering ──
+  const stepStates = {};
+  STEPS.forEach(s => { stepStates[s.name] = 'pending'; });
+
+  function renderStepper() {
+    const phaseLabels = {subdomains: 'Subdomain Gathering', urls: 'URL Harvesting', build: 'Classification'};
+    let html = '';
+    let lastPhase = '';
+
+    STEPS.forEach((s, i) => {
+      if (s.phase !== lastPhase) {
+        lastPhase = s.phase;
+        html += `<div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold mt-3 mb-1 ${i === 0 ? 'mt-0' : ''}">${phaseLabels[s.phase] || s.phase}</div>`;
+      }
+
+      const state = stepStates[s.name] || 'pending';
+      let icon = '', cls = '';
+
+      switch(state) {
+        case 'completed':
+          icon = '<svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
+          cls = 'text-emerald-700 bg-emerald-50';
+          break;
+        case 'running':
+          icon = '<svg class="w-4 h-4 text-indigo-500 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>';
+          cls = 'text-indigo-700 bg-indigo-50 font-semibold ring-1 ring-indigo-200';
+          break;
+        case 'paused':
+          icon = '<span class="text-amber-500 flex-shrink-0 text-sm font-bold">⏸</span>';
+          cls = 'text-amber-700 bg-amber-50 ring-1 ring-amber-200';
+          break;
+        case 'failed':
+          icon = '<svg class="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+          cls = 'text-red-700 bg-red-50';
+          break;
+        case 'skipped':
+          icon = '<span class="text-slate-400 flex-shrink-0 text-xs">⏭</span>';
+          cls = 'text-slate-400 bg-slate-50';
+          break;
+        default: // pending
+          icon = '<span class="w-4 h-4 rounded-full border-2 border-slate-300 flex-shrink-0 inline-block"></span>';
+          cls = 'text-slate-500 bg-white';
+      }
+
+      html += `<div id="step-${s.name}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-all ${cls}">${icon}<span>${s.label}</span></div>`;
+    });
+
+    stepperEl.innerHTML = html;
+  }
+
+  renderStepper();
+
+  // ── Helpers ──
+  function append(text) {
+    outEl.textContent += text;
+    boxEl.scrollTop = boxEl.scrollHeight;
+  }
+
+  function setRunning(on) {
+    startBtn.classList.toggle('hidden', on);
+    pauseBtn.classList.toggle('hidden', !on || isPaused);
+    resumeBtn.classList.toggle('hidden', !on || !isPaused);
+    cancelBtn.disabled = !on;
+    pauseBtn.disabled = !on;
+    resumeBtn.disabled = !on;
+
+    if (on) {
+      if (!startedAt) startedAt = Date.now();
+      indEl.classList.remove('hidden');
+      indEl.classList.add('flex');
+      statusText.textContent = isPaused ? 'Paused' : 'Running…';
+      if (!timer) {
+        timer = setInterval(() => {
+          if (!isPaused) {
+            const s = Math.floor((Date.now() - startedAt) / 1000);
+            const m = Math.floor(s / 60);
+            elapsedEl.textContent = m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+          }
+        }, 1000);
+      }
+    } else {
+      if (timer) { clearInterval(timer); timer = null; }
+      indEl.classList.add('hidden');
+      indEl.classList.remove('flex');
+    }
+  }
+
+  function notifyJobFinished(status, durationS) {
+    if (window.parent && typeof window.parent.onCliJobFinished === 'function') {
+      window.parent.onCliJobFinished(status, durationS);
+    }
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: 'reconlens:job_finished', tool: 'passive_recon', status, duration: durationS }, '*');
+    }
+  }
+
+  // ── API helpers ──
+  function apiUrl(action, jobId) {
+    let path = `/targets/${encodeURIComponent(scope)}/workflow/passive/${action}`;
+    if (jobId) path += `?job=${jobId}`;
+    return path;
+  }
+
+  // ── SSE event handler ──
+  function connectStream(jobId) {
+    if (es) { try { es.close(); } catch(_){} }
+
+    es = new EventSource(apiUrl('stream', jobId));
+
+    es.onmessage = (ev) => {
+      if (ev.data === '[[DONE]]') {
+        setRunning(false);
+        try { es.close(); } catch(_){}
+        es = null;
+        const durS = Math.floor((Date.now() - startedAt) / 1000);
+        append(`\n[done] Pipeline completed in ${durS}s\n`);
+        progLabel.textContent = 'Pipeline completed';
+        notifyJobFinished('done', durS);
+        return;
+      }
+
+      // Step update events
+      if (ev.data.startsWith('[step_update]')) {
+        try {
+          const payload = JSON.parse(ev.data.substring(13).trim());
+          stepStates[payload.name] = payload.status;
+          renderStepper();
+
+          if (payload.status === 'running') {
+            const step = STEPS.find(s => s.name === payload.name);
+            progLabel.textContent = `Running: ${step ? step.label : payload.name}`;
+          }
+        } catch(e) {}
+        return;
+      }
+
+      // Progress events
+      if (ev.data.startsWith('[progress]')) {
+        try {
+          const prog = JSON.parse(ev.data.substring(10).trim());
+          globalProg.style.width = prog.percentage + '%';
+          progPct.textContent = prog.percentage + '%';
+        } catch(e) {}
+        return;
+      }
+
+      // Regular log lines
+      append(ev.data + '\n');
+    };
+
+    es.onerror = () => {
+      append('[error] Stream connection lost\n');
+      setRunning(false);
+      try { es.close(); } catch(_){}
+      es = null;
+      notifyJobFinished('error');
+    };
+  }
+
+  // ── Start pipeline ──
+  async function startPipeline() {
+    outEl.textContent = '';
+    isPaused = false;
+    startedAt = Date.now();
+    STEPS.forEach(s => { stepStates[s.name] = 'pending'; });
+    renderStepper();
+    globalProg.style.width = '0%';
+    progPct.textContent = '0%';
+    progLabel.textContent = 'Starting pipeline...';
+
+    setRunning(true);
+
+    try {
+      const res = await fetch(apiUrl('start'), { method: 'POST' });
+      if (!res.ok) {
+        append(`[error] Failed to start. HTTP ${res.status}\n`);
+        setRunning(false);
+        return;
+      }
+      const data = await res.json();
+      currentJob = data.job_id;
+      if (window.parent && typeof window.parent.onCliJobStarted === 'function') {
+        window.parent.onCliJobStarted('passive_recon');
+      }
+      connectStream(currentJob);
+    } catch(err) {
+      append(`[error] ${err.message || err}\n`);
+      setRunning(false);
+      notifyJobFinished('error');
+    }
+  }
+
+  // ── Pause ──
+  async function pausePipeline() {
+    if (!currentJob) return;
+    try {
+      await fetch(apiUrl('pause', currentJob), { method: 'POST' });
+      isPaused = true;
+      statusText.textContent = 'Paused';
+      pauseBtn.classList.add('hidden');
+      resumeBtn.classList.remove('hidden');
+      // Update running step to paused
+      for (const [name, state] of Object.entries(stepStates)) {
+        if (state === 'running') {
+          stepStates[name] = 'paused';
+          renderStepper();
+          break;
+        }
+      }
+      append('[info] Pipeline paused\n');
+    } catch(_){}
+  }
+
+  // ── Resume ──
+  async function resumePipeline() {
+    if (!currentJob) return;
+    try {
+      await fetch(apiUrl('resume', currentJob), { method: 'POST' });
+      isPaused = false;
+      statusText.textContent = 'Running…';
+      resumeBtn.classList.add('hidden');
+      pauseBtn.classList.remove('hidden');
+      // Update paused step back to running
+      for (const [name, state] of Object.entries(stepStates)) {
+        if (state === 'paused') {
+          stepStates[name] = 'running';
+          renderStepper();
+          break;
+        }
+      }
+      append('[info] Pipeline resumed\n');
+    } catch(_){}
+  }
+
+  // ── Cancel ──
+  async function cancelPipeline() {
+    if (!currentJob) return;
+    try {
+      await fetch(apiUrl('cancel', currentJob), { method: 'POST' });
+    } catch(_){}
+    setRunning(false);
+    isPaused = false;
+    if (es) { try { es.close(); } catch(_){} es = null; }
+    append('[info] Pipeline cancelled\n');
+    progLabel.textContent = 'Pipeline cancelled';
+    notifyJobFinished('cancelled');
+  }
+
+  // ── Bind buttons ──
+  startBtn.addEventListener('click', startPipeline);
+  pauseBtn.addEventListener('click', pausePipeline);
+  resumeBtn.addEventListener('click', resumePipeline);
+  cancelBtn.addEventListener('click', cancelPipeline);
+
+  // ── Ctrl+Enter to start ──
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !startBtn.classList.contains('hidden')) {
+      startPipeline();
+    }
+  });
+
+  // ── Auto-reattach if active workflow exists ──
+  (async function checkActiveWorkflow() {
+    try {
+      const res = await fetch(apiUrl('status'));
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.active && data.job_id) {
+        currentJob = data.job_id;
+        isPaused = data.paused || false;
+        startedAt = Date.now() - ((data.elapsed_s || 0) * 1000);
+
+        // Restore step states
+        if (data.step_states) {
+          for (const [name, state] of Object.entries(data.step_states)) {
+            stepStates[name] = state;
+          }
+          renderStepper();
+        }
+
+        // Restore progress
+        if (data.progress) {
+          globalProg.style.width = data.progress.percentage + '%';
+          progPct.textContent = data.progress.percentage + '%';
+        }
+
+        progLabel.textContent = isPaused ? 'Pipeline paused' : 'Pipeline running (reattached)';
+        setRunning(true);
+        connectStream(currentJob);
+        append('[info] Reattached to running pipeline\n');
+      }
+    } catch(e) {}
+  })();
+
+})();
+</script>
+{% endblock %}

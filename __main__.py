@@ -35,7 +35,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "enabled": True,
             "host_regex": [],
             "path_regex": [r"/(login|signin|auth|oauth|sso)(/|$)"],
-            "query_keys": ["redirect_uri", "client_id", "return", "next"],
         },
         "admin_panel": {
             "enabled": True,
@@ -94,6 +93,27 @@ DEFAULT_CONFIG: Dict[str, Any] = {
                 ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
                 ".zip", ".gz", ".tar", ".rar", ".7z",
                 ".sql", ".sqlite", ".bak", ".log",
+            ],
+        },
+        "injection_candidates": {
+            "enabled": True,
+            "query_keys": [
+                "id", "file", "url", "redirect", "path", "query", "search", 
+                "file_name", "src", "href", "dest", "target", "action", 
+                "callback", "load", "go", "return_to"
+            ],
+        },
+        "catalog_noise": {
+            "enabled": True,
+            "path_regex": [
+                r"^/\$",
+                r"/(product|goods|pd|item|category|brand|article|post|blog)/",
+                r"/(product|goods|pd|item|category|brand|article|post|blog|p)-",
+                r"-[cp]-[0-9]+\.html$",
+            ],
+            "query_keys": [
+                "child_id", "exc_attr_id", "attr_ids", "attr_values", "page", 
+                "ref", "rep", "ret"
             ],
         },
         # NOTE: "other" is implicit; engine will always create it as fallback.
