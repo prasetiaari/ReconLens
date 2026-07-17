@@ -162,11 +162,35 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         params = [mod]
 
     if q:
-        if mod == "tagged":
-            query_parts.append("AND n.url LIKE ?")
-        else:
-            query_parts.append("AND u.url LIKE ?")
-        params.append(f"%{q}%")
+        import re
+        # Find all quoted strings or non-whitespace tokens
+        tokens = re.findall(r'"[^"]*"|\S+', q)
+        
+        for tok in tokens:
+            is_exclude = False
+            
+            if tok.startswith('"') and tok.endswith('"') and len(tok) >= 2:
+                # Quoted string: strip quotes, treat as literal inclusion
+                val = tok[1:-1]
+            elif tok.startswith('-') or tok.startswith('!'):
+                # Unquoted exclude token
+                is_exclude = True
+                val = tok[1:]
+            else:
+                # Normal unquoted token
+                val = tok
+                
+            if not val:
+                continue
+                
+            col = "n.url" if mod == "tagged" else "u.url"
+                
+            if is_exclude:
+                query_parts.append(f"AND {col} NOT LIKE ?")
+            else:
+                query_parts.append(f"AND {col} LIKE ?")
+                
+            params.append(f"%{val}%")
     if host_f:
         if mod == "tagged":
             query_parts.append("AND e.host = ?")
