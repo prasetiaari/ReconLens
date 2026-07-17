@@ -19,8 +19,14 @@
 
   <div class="col-span-12 md:col-span-4">
     <label class="block text-sm text-slate-500 mb-1">Search</label>
-    <input name="q" value="{{ q|default('') }}" placeholder="substring..." class="input w-full"/>
-  </div>
+    <div class="relative flex items-center">
+      <input name="q" value="{{ q|default('') }}" placeholder="substring..." class="input w-full !rounded-r-none"/>
+      <div class="bg-slate-100 border-y border-r border-slate-200 px-2 h-[38px] flex items-center justify-center rounded-r text-slate-400 cursor-help" title="Advanced Search:&#10;• Separated words are searched independently (e.g., 'admin login')&#10;• Prefix with '-' or '!' to exclude (e.g., 'admin -login')&#10;• Use quotes for exact phrase (e.g., '&quot;admin -login&quot;')">
+        <svg xmlns="http://www.w3.org/200.svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+    </div>
 
   <div class="col-span-6 md:col-span-1">
     <label class="block text-sm text-slate-500 mb-1">HTTP Class</label>
