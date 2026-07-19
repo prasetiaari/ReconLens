@@ -961,6 +961,7 @@ async def workflow_passive_cancel(scope: str, job: str):
                 pass
 
     info["paused"] = False
+    info["cancelling"] = True
     return JSONResponse({"ok": True})
 
 
@@ -1013,7 +1014,7 @@ async def workflow_passive_status(scope: str):
                 WORKFLOW_JOBS[scope] = info
                 break
 
-    if not info or info.get("done"):
+    if not info or info.get("done") or info.get("cancelling"):
         return JSONResponse({"active": False})
 
     # Check if process is still alive

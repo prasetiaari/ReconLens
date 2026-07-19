@@ -1,0 +1,10 @@
+<div class="flex items-center gap-2 mb-6 border-b border-slate-200 pb-2">
+  <a href="/programs/{{ program_name }}"
+     class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 {{ 'border-slate-800 text-slate-800' if active_tab == 'overview' else 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }}">
+    Overview
+  </a>
+  <a href="/programs/{{ program_name }}/notes"
+     class="px-4 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 {{ 'border-slate-800 text-slate-800' if active_tab == 'notes' else 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }}">
+    Aggregated Notes
+  </a>
+</div>

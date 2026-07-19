@@ -29,7 +29,7 @@
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M4 4h2v2H4V4zm4 0h2v2H8V4zm4 0h2v2h-2V4zM4 8h2v2H4V8zm4 0h2v2H8V8zm4 0h2v2h-2V8zM4 12h2v2H4v-2zm4 0h2v2H8v-2zm4 0h2v2h-2v-2z"/></svg>
               </div>
               <svg class="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-              <h2 class="text-lg font-semibold text-slate-800 break-words leading-tight" title="{{ group_name }}">{{ group_name }}</h2>
+              <a href="/programs/{{ group_name }}" class="text-lg font-semibold text-slate-800 break-words leading-tight hover:text-indigo-600 transition-colors" title="View Program Dashboard">{{ group_name }}</a>
               
               <!-- Edit Button -->
               <button onclick="openMetaModal('{{ group_name }}', '{{ program_meta.get(group_name, {}).get('platform', '') }}', '{{ program_meta.get(group_name, {}).get('url', '') }}', '{{ program_meta.get(group_name, {}).get('notes', '') | escape }}')" 
