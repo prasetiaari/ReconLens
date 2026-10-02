@@ -62,7 +62,7 @@
               <a href="/" class="hover:underline">ReconLens</a>
               <span class="mx-1">/</span>
               {% if program_name %}
-                <a href="/#prog-{{ program_name }}" class="hover:underline">{{ program_name }}</a>
+                <a href="/programs/{{ program_name }}" class="hover:underline">{{ program_name }}</a>
                 <span class="mx-1">/</span>
               {% endif %}
               <a href="/targets/{{ scope }}" class="hover:underline">{{ scope }}</a>
@@ -355,7 +355,7 @@
   window.openCliRunnerSidebar = openSidebar;
 
   document.addEventListener('click', function(e) {
-    const collectLink = e.target.closest('a[href*="/collect/"]');
+    const collectLink = e.target.closest('a[href^="/targets/"][href*="/collect/"]');
     if (collectLink) {
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;
       e.preventDefault();
