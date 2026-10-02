@@ -45,7 +45,7 @@ def home(request: Request):
         groups[prog_name].sort(key=lambda x: (x not in favorites, x))
 
     # Calculate quick stats for UI
-    from app.routers.targets.utils import count_lines, safe_json_load
+    from app.routers.targets.utils import safe_json_load, gather_stats
     
     scope_stats = {}
     program_stats = {}
@@ -55,9 +55,24 @@ def home(request: Request):
         p_urls = 0
         for s in prog_scopes:
             target_dir = settings.OUTPUTS_DIR / s
-            
-            subs = count_lines(target_dir / "subdomains.txt")
-            urls = count_lines(target_dir / "urls.txt")
+
+            # Cached stats (mtime-based in meta.json) — never scan GBs of
+            # urls.txt directly here; shein.se alone is 831M / 4M lines.
+            live = 0
+            urls = 0
+            subs = 0
+            try:
+                stats_pack = gather_stats(s)
+                urls = stats_pack.get("urls_count", 0) or 0
+                for row in stats_pack.get("stats", []):
+                    if (row.get("module") or "") == "subdomains":
+                        subs = row.get("lines", 0) or 0
+                        break
+                dash = stats_pack.get("dash", {})
+                totals = dash.get("totals", {})
+                live = totals.get("live_urls", 0)
+            except Exception:
+                pass
             
             meta = safe_json_load(target_dir / "meta.json")
             last_scans = meta.get("last_scans", {})
@@ -65,18 +80,27 @@ def home(request: Request):
             
             # Convert ISO string to something shorter if possible
             last_scan_short = ""
+            last_scan_days = None
             if last_scan:
                 try:
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     dt = datetime.fromisoformat(last_scan.replace('Z', '+00:00'))
                     last_scan_short = dt.strftime("%b %d, %Y")
+                    now = datetime.now(timezone.utc)
+                    last_scan_days = (now - dt).days
                 except:
                     last_scan_short = last_scan.split('T')[0]
+
+            # Coverage from cached live count
+            coverage_pct = round((live / urls * 100), 1) if urls > 0 else 0
 
             scope_stats[s] = {
                 "subs": subs,
                 "urls": urls,
-                "last_scan": last_scan_short
+                "live": live,
+                "last_scan": last_scan_short,
+                "last_scan_days": last_scan_days,
+                "coverage_pct": coverage_pct,
             }
             p_subs += subs
             p_urls += urls

@@ -344,6 +344,7 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
         "scope": scope,
         "program_name": program_name,
         "module": mod,
+        "module_name": mod,
         "rows": rows,
         "q": q,
         "page": page,
