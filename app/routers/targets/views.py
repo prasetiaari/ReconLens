@@ -134,25 +134,34 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
     # --- enrich caches ---
     wordlists = list_wordlists()
 
-    # --- SQLite Database Sync and Query ---
-    from app.services.db_sync import sync_target, get_db_path
+    # --- SQLite Database Sync and Query (per-module only) ---
+    from app.services.db_sync import (
+        sync_single_module, get_db_path,
+        make_filter_hash, get_cached_count, set_cached_count,
+        get_cached_hosts, set_cached_hosts,
+        _txt_mtime, _enrich_mtime,
+    )
     import sqlite3
-    
-    # Ensure DB is synced (very fast if unchanged)
-    sync_target(outputs_root, scope)
-    
+
+    # Point 1: sync ONLY this module — never touch other *.txt files.
+    sync_single_module(outputs_root, scope, mod)
+
     db_path = get_db_path(outputs_root, scope)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # Populate Host Dropdown dynamically from SQLite
-    if mod == "tagged":
-        cur.execute("SELECT DISTINCT e.host FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE e.host IS NOT NULL AND e.host != '' ORDER BY e.host")
-    else:
-        cur.execute("SELECT DISTINCT host FROM module_urls WHERE module = ? AND host IS NOT NULL AND host != '' ORDER BY host", (mod,))
-    
-    discovery_host_options = [r["host"] for r in cur.fetchall()]
+    # Host dropdown via cache (invalidated by mtime) — avoids DISTINCT scan of 4M rows per request.
+    _txt_mt = _txt_mtime(outputs_root, scope, mod) if mod != "tagged" else 0.0
+    _en_mt = _enrich_mtime(outputs_root, scope)
+    discovery_host_options = get_cached_hosts(outputs_root, scope, mod, _txt_mt, _en_mt)
+    if discovery_host_options is None:
+        if mod == "tagged":
+            cur.execute("SELECT DISTINCT e.host FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE e.host IS NOT NULL AND e.host != '' ORDER BY e.host")
+        else:
+            cur.execute("SELECT DISTINCT host FROM module_urls WHERE module = ? AND host IS NOT NULL AND host != '' ORDER BY host", (mod,))
+        discovery_host_options = [r["host"] for r in cur.fetchall()]
+        set_cached_hosts(outputs_root, scope, mod, discovery_host_options, _txt_mt, _en_mt)
 
     if mod == "tagged":
         query_parts = ["FROM user_notes n LEFT JOIN enrich_data e ON n.url = e.url WHERE 1=1"]
@@ -226,9 +235,26 @@ async def module_view(request: Request, scope: str, module: str, q: str = ""):
 
     base_query = " ".join(query_parts)
 
-    # Get total count for pagination
-    cur.execute(f"SELECT COUNT(*) {base_query}", params)
-    total = cur.fetchone()[0]
+    # Point 2: COUNT via cache keyed by filter token (md5). Point 3: 'none'
+    # is precomputed at sync time, so no-filter open costs 0 COUNT queries.
+    filt_dict = {
+        "q": q, "host": host_f, "scheme": scheme_f,
+        "codes": sorted(codes_set), "http_class": http_class,
+        "ctype": ctype_sub, "min_size": min_size, "max_size": max_size,
+        "method": method_filter,
+    }
+    fhash, fjson = make_filter_hash(mod, filt_dict)
+    total = get_cached_count(outputs_root, scope, mod, fhash, _txt_mt, _en_mt)
+    if total is None:
+        if len(params) == 1 or (mod == "tagged" and len(params) == 0):
+            if mod == "tagged":
+                cur.execute("SELECT COUNT(*) FROM user_notes")
+            else:
+                cur.execute("SELECT COUNT(*) FROM module_urls WHERE module = ?", (mod,))
+        else:
+            cur.execute(f"SELECT COUNT(*) {base_query}", params)
+        total = cur.fetchone()[0]
+        set_cached_count(outputs_root, scope, mod, fhash, fjson, total, _txt_mt, _en_mt)
 
     # Pagination logic
     total_pages = max(1, (total + page_size - 1) // page_size)
