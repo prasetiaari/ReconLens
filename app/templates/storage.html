@@ -1,0 +1,204 @@
+{% extends "layout/base.html" %}
+{% block title %}Storage · ReconLens{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Storage</h1>
+    <a href="/" class="text-sm text-blue-600 hover:underline">← Back to home</a>
+  </div>
+
+  <nav class="text-sm text-slate-600 flex items-center" aria-label="Storage breadcrumb">
+    {% if detail %}
+      <a href="/storage" class="hover:underline">Storage</a>
+      <span class="mx-1">/</span>
+      <a href="/storage?program={{ detail.program }}#scopes" class="hover:underline">{{ detail.program }}</a>
+      <span class="mx-1">/</span>
+      <span class="font-semibold">{{ detail.scope }}</span>
+    {% elif active_program %}
+      <a href="/storage" class="hover:underline">Storage</a>
+      <span class="mx-1">/</span>
+      <span class="font-semibold">{{ active_program }}</span>
+    {% else %}
+      <span class="font-semibold">Storage</span>
+    {% endif %}
+  </nav>
+
+  {% if cleaned %}
+  <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+    Cleanup selesai: <code>{{ cleaned }}</code>
+  </div>
+  {% endif %}
+
+  {% if not active_program and not detail %}
+  <!-- Summary cards (front page only) -->
+  <div class="grid sm:grid-cols-3 gap-4">
+    <div class="rounded-xl border bg-white p-5">
+      <div class="text-xs uppercase tracking-wide text-slate-400">Total outputs/</div>
+      <div class="text-2xl font-semibold mt-1">{{ data.total_h }}</div>
+      <div class="text-xs text-slate-400 mt-1">{{ data.rows|length }} scopes · {{ data.generated_at }}</div>
+    </div>
+    <div class="rounded-xl border bg-white p-5">
+      <div class="text-xs uppercase tracking-wide text-slate-400">Bisa dibersihkan (aman)</div>
+      <div class="text-2xl font-semibold mt-1 text-amber-600">{{ data.reclaim_h }}</div>
+      <div class="text-xs text-slate-400 mt-1">job files + raw + sqlite cache</div>
+    </div>
+    <div class="rounded-xl border bg-white p-5">
+      <div class="text-xs uppercase tracking-wide text-slate-400">Aksi global</div>
+      <form method="post" action="/storage/cleanup" hx-post="/storage/cleanup" hx-target="#cleanup-popup" hx-swap="innerHTML" class="mt-2 flex items-center gap-2"
+            onsubmit="return confirm('Hapus JOB INPUTS (*_safe_in.txt) di SEMUA scope?')">
+        <input type="hidden" name="scope" value="__all__"/>
+        <input type="hidden" name="target" value="jobs_safe_in"/>
+        <button class="btn btn-primary text-sm" type="submit">Bersihkan job inputs semua scope</button>
+      </form>
+      <form method="post" action="/storage/cleanup" hx-post="/storage/cleanup" hx-target="#cleanup-popup" hx-swap="innerHTML" class="mt-2 flex items-center gap-2"
+            onsubmit="return confirm('Hapus RAW (*.urls) di SEMUA scope? Hasil merge di urls.txt tetap ada.')">
+        <input type="hidden" name="scope" value="__all__"/>
+        <input type="hidden" name="target" value="raw"/>
+        <button class="btn text-sm" type="submit">Bersihkan raw semua scope</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not active_program and not detail %}
+  <!-- Per-program table (front page) -->
+  <section class="rounded-xl border bg-white overflow-hidden">
+    <div class="px-5 py-4 border-b">
+      <h2 class="text-base font-semibold">Per program</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b">
+          <tr>
+            <th class="px-4 py-2">
+              <a href="/storage?sort={{ 'name_desc' if active_sort == 'name_asc' else 'name_asc' }}" class="hover:underline">Program {{ '▲' if active_sort == 'name_asc' else ('▼' if active_sort == 'name_desc' else '') }}</a>
+            </th>
+            <th class="px-4 py-2 text-right">Scopes</th>
+            <th class="px-4 py-2 text-right">
+              <a href="/storage?sort={{ 'total_asc' if active_sort == 'total_desc' else 'total_desc' }}" class="hover:underline">Total {{ '▼' if active_sort == 'total_desc' else ('▲' if active_sort == 'total_asc' else '') }}</a>
+            </th>
+            <th class="px-4 py-2 text-right">
+              <a href="/storage?sort={{ 'reclaim_asc' if active_sort == 'reclaim_desc' else 'reclaim_desc' }}" class="hover:underline">Bisa dibersihkan {{ '▼' if active_sort == 'reclaim_desc' else ('▲' if active_sort == 'reclaim_asc' else '') }}</a>
+            </th>
+            <th class="px-4 py-2">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in prog_rows %}
+          <tr class="border-b last:border-0 hover:bg-slate-50 {{ 'bg-blue-50' if active_program == p.program else '' }}">
+            <td class="px-4 py-2 font-medium">{{ p.program }}</td>
+            <td class="px-4 py-2 text-right">{{ p.n_scopes }}</td>
+            <td class="px-4 py-2 text-right font-semibold">{{ p.total_h }}</td>
+            <td class="px-4 py-2 text-right text-amber-600">{{ p.reclaim_h }}</td>
+            <td class="px-4 py-2 whitespace-nowrap">
+              <a href="/storage?program={{ p.program }}#scopes" class="text-blue-600 hover:underline text-xs">Buka</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Scopes inside program (only when no scope detail open) -->
+  {% if active_program and not detail %}
+  <section class="rounded-xl border bg-white overflow-hidden" id="scopes">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">Scopes: {{ active_program }}</h2>
+      <a href="/storage" class="text-xs text-slate-500 hover:underline">← semua program</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b">
+          <tr>
+            <th class="px-4 py-2">Scope</th>
+            <th class="px-4 py-2 text-right">Total</th>
+            <th class="px-4 py-2 text-right">Jobs</th>
+            <th class="px-4 py-2 text-right">Raw</th>
+            <th class="px-4 py-2 text-right">urls.txt</th>
+            <th class="px-4 py-2 text-right">Kategori</th>
+            <th class="px-4 py-2 text-right">DB</th>
+            <th class="px-4 py-2 text-right">Bisa dibersihkan</th>
+            <th class="px-4 py-2">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in scope_rows %}
+          <tr class="border-b last:border-0 hover:bg-slate-50">
+            <td class="px-4 py-2 font-medium">
+              <a href="/targets/{{ r.scope }}" class="text-blue-600 hover:underline">{{ r.scope }}</a>
+            </td>
+            <td class="px-4 py-2 text-right font-semibold">{{ r.total_h }}</td>
+            <td class="px-4 py-2 text-right">{{ r.jobs_h }}</td>
+            <td class="px-4 py-2 text-right">{{ r.raw_h }}</td>
+            <td class="px-4 py-2 text-right">{{ r.urls_h }}</td>
+            <td class="px-4 py-2 text-right">{{ r.cats_h }}</td>
+            <td class="px-4 py-2 text-right">{{ r.db_h }}</td>
+            <td class="px-4 py-2 text-right text-amber-600">{{ r.reclaim_h }}</td>
+            <td class="px-4 py-2 whitespace-nowrap flex items-center gap-2">
+              <a href="/storage?program={{ active_program }}&scope={{ r.scope }}#detail" class="text-blue-600 hover:underline text-xs">Detail</a>
+              <form method="post" action="/storage/cleanup" hx-post="/storage/cleanup" hx-target="#cleanup-popup" hx-swap="innerHTML" class="inline"
+                    onsubmit="return confirm('Hapus {{ r.reclaim_h }} (job + raw + DB cache) untuk {{ r.scope }}? DB di-rebuild otomatis.')">
+                <input type="hidden" name="scope" value="{{ r.scope }}"/>
+                <input type="hidden" name="target" value="quick"/>
+                <button class="text-xs text-amber-600 hover:underline" type="submit" title="Bersihkan semua yang dihitung di kolom Bisa dibersihkan">Bersihkan ({{ r.reclaim_h }})</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Detail per scope -->
+  {% if detail %}
+  <section class="rounded-xl border bg-white overflow-hidden" id="detail">
+    <div class="px-5 py-4 border-b flex items-center justify-between">
+      <h2 class="text-base font-semibold">Detail: {{ detail.scope }} ({{ detail.usage.total_h }})</h2>
+      <a href="/storage?program={{ detail.program }}#scopes" class="text-xs text-slate-500 hover:underline">← scopes {{ detail.program }}</a>
+    </div>
+    <div class="p-5 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {% for tkey, tval in targets.items() %}
+      <form method="post" action="/storage/cleanup" hx-post="/storage/cleanup" hx-target="#cleanup-popup" hx-swap="innerHTML" class="rounded-lg border p-3 space-y-2"
+            onsubmit="return confirm('Hapus {{ tval[0] }} untuk {{ detail.scope }}?')">
+        <input type="hidden" name="scope" value="{{ detail.scope }}"/>
+        <input type="hidden" name="target" value="{{ tkey }}"/>
+        <div class="text-sm font-semibold">{{ tval[0] }}</div>
+        <div class="text-xs text-slate-500">{{ tval[1] }}</div>
+        <div class="text-sm font-semibold text-amber-600">
+          {% if tkey == 'jobs_safe_in' %}{{ detail.usage.safe_in_h }}
+          {% elif tkey == 'jobs_all' %}{{ detail.usage.jobs_h }}
+          {% elif tkey == 'raw' %}{{ detail.usage.raw_h }}
+          {% elif tkey == 'db' %}{{ detail.usage.db_h }}
+          {% endif %}
+        </div>
+        <button class="btn text-xs" type="submit">Hapus</button>
+      </form>
+      {% endfor %}
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b">
+          <tr><th class="px-4 py-2">File terbesar (top 100)</th><th class="px-4 py-2 text-right">Size</th></tr>
+        </thead>
+        <tbody>
+          {% for f in detail.files %}
+          <tr class="border-b last:border-0 hover:bg-slate-50">
+            <td class="px-4 py-1.5 font-mono text-xs">{{ f.path }}</td>
+            <td class="px-4 py-1.5 text-right">{{ f.human }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Popup hasil cleanup (diisi via htmx, tanpa pindah halaman) -->
+  <div id="cleanup-popup"></div>
+</div>
+{% endblock %}
